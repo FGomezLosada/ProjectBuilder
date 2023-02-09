@@ -24,6 +24,8 @@
 
 import os
 
+from PyQt5.QtWidgets import *
+
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal
 
@@ -44,6 +46,23 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # http://doc.qt.io/qt-5/designer-using-a-ui-file.html
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
+
+        print('empezamos')
+        print(self.comboBox.currentText())
+        print(self.treeWidget)
+
+        # tree = your_qtreewidget  # replace every 'tree' with your QTreeWidget
+        strings = ['jhfj<hfj','aaaaa','kjkfs']
+        l = []  # list of QTreeWidgetItem to add
+        for i in strings:
+            l.append(QTreeWidgetItem([i]))  # create QTreeWidgetItem's and append them
+        self.treeWidget.addTopLevelItems(l)  # add everything to the tree
+        # # add the items to the QTreeWidget
+        # self.treeWidget.insertTopLevelItems(1, l)
+
+
+
+
 
     def closeEvent(self, event):
         self.closingPlugin.emit()

@@ -211,22 +211,22 @@ class CartoBase:
     def run(self):
         """Run method that loads and starts the plugin"""
 
-        if not self.pluginIsActive:
-            self.pluginIsActive = True
+        # if not self.pluginIsActive:
+        #     self.pluginIsActive = True
 
-            #print "** STARTING CartoBase"
+        #print "** STARTING CartoBase"
 
-            # dockwidget may not exist if:
-            #    first run of plugin
-            #    removed on close (see self.onClosePlugin method)
-            if self.dockwidget == None:
-                # Create the dockwidget (after translation) and keep reference
-                self.dockwidget = CartoBaseDockWidget()
+        # dockwidget may not exist if:
+        #    first run of plugin
+        #    removed on close (see self.onClosePlugin method)
+        if self.dockwidget == None:
+            # Create the dockwidget (after translation) and keep reference
+            self.dockwidget = CartoBaseDockWidget()
 
-            # connect to provide cleanup on closing of dockwidget
-            self.dockwidget.closingPlugin.connect(self.onClosePlugin)
+        # connect to provide cleanup on closing of dockwidget
+        self.dockwidget.closingPlugin.connect(self.onClosePlugin)
 
-            # show the dockwidget
-            # TODO: fix to allow choice of dock location
-            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
-            self.dockwidget.show()
+        # show the dockwidget
+        # TODO: fix to allow choice of dock location
+        self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
+        self.dockwidget.show()
