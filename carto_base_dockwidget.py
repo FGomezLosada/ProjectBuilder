@@ -24,6 +24,8 @@
 
 import os
 
+from PyQt5.QtGui import QIcon
+
 from PyQt5.QtWidgets import *
 
 from qgis.PyQt import QtGui, QtWidgets, uic
@@ -47,6 +49,10 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
 
+        # Disparadores
+        self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER(self.pathFolder))
+        self.load_project_structure(r"J:\Dropbox (Personal)\CAPAS_BASE",self.treeWidget)
+
         print('empezamos')
         print(self.comboBox.currentText())
         print(self.treeWidget)
@@ -60,8 +66,44 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # # add the items to the QTreeWidget
         # self.treeWidget.insertTopLevelItems(1, l)
 
+    def SELECT_FOLDER(self,qt_element):
+        folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.DontResolveSymlinks)
+        qt_element.setText(folder)
+        print(qt_element)
 
-
+    def load_project_structure(self, startpath, tree):
+        """
+        Load Project structure tree
+        :param startpath: 
+        :param tree: 
+        :return: 
+        """
+        lista_vectoriales = ('.shp','.gpk')
+        lista_todos = ('.shp','.gpk','.tif','.ecw')
+        for element in os.listdir(startpath):
+            path_info = startpath + "/" + element
+            si_formato = 0
+            for ext in lista_todos:
+                if element.endswith(ext):
+                    si_formato = 1
+            if si_formato == 1 or os.path.isdir(path_info):
+                parent_itm = QTreeWidgetItem(tree, [os.path.basename(element)])
+            if os.path.isdir(path_info):
+                self.load_project_structure(path_info, parent_itm)
+                parent_itm.setIcon(0, QIcon('assets/folder.ico'))
+            else:
+                definido = 0
+                for ext in lista_vectoriales:
+                    if element.endswith(ext):
+                        parent_itm.setIcon(0, QIcon('assets/file_vectorial.ico'))
+                        definido = 1
+                        break
+                if definido == 0:
+                    for ext in ('.tif','.ecw'):
+                        if element.endswith(ext):
+                            parent_itm.setIcon(0, QIcon('assets/file_raster.ico'))
+                            definido = 1
+                            break
 
 
     def closeEvent(self, event):
