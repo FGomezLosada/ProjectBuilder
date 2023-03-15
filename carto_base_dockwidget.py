@@ -51,7 +51,10 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Disparadores
         self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER(self.pathFolder))
+        
         self.load_project_structure(r"J:\Dropbox (Personal)\CAPAS_BASE",self.treeWidget)
+        # pathFolder seleccionar la ruta
+        
 
         print('empezamos')
         print(self.comboBox.currentText())
@@ -90,18 +93,18 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 parent_itm = QTreeWidgetItem(tree, [os.path.basename(element)])
             if os.path.isdir(path_info):
                 self.load_project_structure(path_info, parent_itm)
-                parent_itm.setIcon(0, QIcon('assets/folder.ico'))
+                parent_itm.setIcon(0, QIcon(r'C:\Users\PACOG\AppData\Roaming\QGIS\QGIS3\profiles\PacoG\python\plugins\carto_base\icon\folder.ico'))
             else:
                 definido = 0
                 for ext in lista_vectoriales:
                     if element.endswith(ext):
-                        parent_itm.setIcon(0, QIcon('assets/file_vectorial.ico'))
+                        parent_itm.setIcon(0, QIcon(r'C:\Users\PACOG\AppData\Roaming\QGIS\QGIS3\profiles\PacoG\python\plugins\carto_base\icon\file_vectorial.ico'))
                         definido = 1
                         break
                 if definido == 0:
                     for ext in ('.tif','.ecw'):
                         if element.endswith(ext):
-                            parent_itm.setIcon(0, QIcon('assets/file_raster.ico'))
+                            parent_itm.setIcon(0, QIcon(r'C:\Users\PACOG\AppData\Roaming\QGIS\QGIS3\profiles\PacoG\python\plugins\carto_base\icon\file_raster.ico'))
                             definido = 1
                             break
 
