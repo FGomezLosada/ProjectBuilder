@@ -27,12 +27,14 @@ import os
 from PyQt5.QtGui import QIcon
 
 from PyQt5.QtWidgets import *
+from qgis.PyQt.QtWidgets import QMessageBox
 
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'carto_base_dockwidget_base.ui'))
+pathplugin = os.path.dirname(__file__)
 
 
 class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
@@ -50,30 +52,23 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setupUi(self)
 
         # Disparadores
-        self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER(self.pathFolder))
-        
-        self.load_project_structure(r"J:\Dropbox (Personal)\CAPAS_BASE",self.treeWidget)
-        # pathFolder seleccionar la ruta
-        
-
-        print('empezamos')
-        print(self.comboBox.currentText())
-        print(self.treeWidget)
-
-        # tree = your_qtreewidget  # replace every 'tree' with your QTreeWidget
-        strings = ['jhfj<hfj','aaaaa','kjkfs']
-        l = []  # list of QTreeWidgetItem to add
-        for i in strings:
-            l.append(QTreeWidgetItem([i]))  # create QTreeWidgetItem's and append them
-        self.treeWidget.addTopLevelItems(l)  # add everything to the tree
-        # # add the items to the QTreeWidget
-        # self.treeWidget.insertTopLevelItems(1, l)
+        self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER_AND_PROJECT(self.pathFolder))
+        self.selectFolderProject.clicked.connect(lambda: self.SELECT_FOLDER(self.pathFolderProject))
 
     def SELECT_FOLDER(self,qt_element):
         folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.DontResolveSymlinks)
         qt_element.setText(folder)
-        print(qt_element)
-
+ 
+    def SELECT_FOLDER_AND_PROJECT(self,qt_element):
+        folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.DontResolveSymlinks)
+        qt_element.setText(folder)
+        self.treeWidget.clear()
+        self.load_project_structure(folder,self.treeWidget) # pathFolder seleccionar la ruta
+       
+    def selectTreeChilds(self):
+        for i in range(0,self.childCount()):
+            self.child(i).setSelected(True)
+    
     def load_project_structure(self, startpath, tree):
         """
         Load Project structure tree
@@ -93,18 +88,19 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 parent_itm = QTreeWidgetItem(tree, [os.path.basename(element)])
             if os.path.isdir(path_info):
                 self.load_project_structure(path_info, parent_itm)
-                parent_itm.setIcon(0, QIcon(r'C:\Users\PACOG\AppData\Roaming\QGIS\QGIS3\profiles\PacoG\python\plugins\carto_base\icon\folder.ico'))
+                # parent_itm.itemActivated.connect(self.selectTreeChilds())
+                parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','folder.ico')))
             else:
                 definido = 0
                 for ext in lista_vectoriales:
                     if element.endswith(ext):
-                        parent_itm.setIcon(0, QIcon(r'C:\Users\PACOG\AppData\Roaming\QGIS\QGIS3\profiles\PacoG\python\plugins\carto_base\icon\file_vectorial.ico'))
+                        parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_vectorial.ico')))
                         definido = 1
                         break
                 if definido == 0:
                     for ext in ('.tif','.ecw'):
                         if element.endswith(ext):
-                            parent_itm.setIcon(0, QIcon(r'C:\Users\PACOG\AppData\Roaming\QGIS\QGIS3\profiles\PacoG\python\plugins\carto_base\icon\file_raster.ico'))
+                            parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_raster.ico')))
                             definido = 1
                             break
 

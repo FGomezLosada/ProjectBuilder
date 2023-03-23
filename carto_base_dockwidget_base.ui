@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1137</width>
-    <height>1300</height>
+    <height>1301</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -25,6 +25,16 @@
         <string>Tab 1</string>
        </attribute>
        <layout class="QGridLayout" name="gridLayout_2">
+        <item row="8" column="0">
+         <widget class="QLabel" name="label_3">
+          <property name="text">
+           <string>Carpeta de proyecto</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLineEdit" name="pathFolder"/>
+        </item>
         <item row="1" column="1">
          <widget class="QPushButton" name="selectFolder">
           <property name="text">
@@ -32,7 +42,27 @@
           </property>
          </widget>
         </item>
-        <item row="3" column="0">
+        <item row="10" column="0">
+         <widget class="QLabel" name="label_4">
+          <property name="text">
+           <string>Nombre de proyecto</string>
+          </property>
+         </widget>
+        </item>
+        <item row="11" column="0">
+         <widget class="QLineEdit" name="pathFolder_2"/>
+        </item>
+        <item row="9" column="1">
+         <widget class="QPushButton" name="selectFolderProject">
+          <property name="text">
+           <string>...</string>
+          </property>
+         </widget>
+        </item>
+        <item row="9" column="0">
+         <widget class="QLineEdit" name="pathFolderProject"/>
+        </item>
+        <item row="5" column="0">
          <widget class="QTreeWidget" name="treeWidget">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -46,30 +76,32 @@
             <height>150</height>
            </size>
           </property>
-          <column>
-           <property name="text">
-            <string notr="true">1</string>
-           </property>
-          </column>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::MultiSelection</enum>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectItems</enum>
+          </property>
+          <property name="verticalScrollMode">
+           <enum>QAbstractItemView::ScrollPerPixel</enum>
+          </property>
          </widget>
         </item>
-        <item row="2" column="0">
+        <item row="4" column="0">
          <widget class="QLabel" name="label">
           <property name="text">
            <string>Selección de capas</string>
           </property>
          </widget>
         </item>
-        <item row="2" column="1">
-         <widget class="QComboBox" name="comboBox">
-          <item>
-           <property name="text">
-            <string>uno</string>
-           </property>
-          </item>
+        <item row="0" column="0">
+         <widget class="QLabel" name="label_2">
+          <property name="text">
+           <string>Selección de ruta</string>
+          </property>
          </widget>
         </item>
-        <item row="5" column="0">
+        <item row="13" column="0">
          <spacer name="verticalSpacer">
           <property name="orientation">
            <enum>Qt::Vertical</enum>
@@ -82,13 +114,10 @@
           </property>
          </spacer>
         </item>
-        <item row="1" column="0">
-         <widget class="QLineEdit" name="pathFolder"/>
-        </item>
-        <item row="0" column="0">
-         <widget class="QLabel" name="label_2">
+        <item row="12" column="0">
+         <widget class="QPushButton" name="selectFolder_2">
           <property name="text">
-           <string>Selección de ruta</string>
+           <string>Crear proyecto</string>
           </property>
          </widget>
         </item>
