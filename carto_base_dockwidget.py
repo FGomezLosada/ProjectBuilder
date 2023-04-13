@@ -23,6 +23,7 @@
 """
 
 import os
+from qgis.core import *
 
 from PyQt5.QtGui import QIcon
 
@@ -54,6 +55,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # Disparadores
         self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER_AND_PROJECT(self.pathFolder))
         self.selectFolderProject.clicked.connect(lambda: self.SELECT_FOLDER(self.pathFolderProject))
+        self.createProject.clicked.connect(lambda: self.CREATE_PROJECT())
 
     def SELECT_FOLDER(self,qt_element):
         folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.DontResolveSymlinks)
@@ -64,7 +66,17 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         qt_element.setText(folder)
         self.treeWidget.clear()
         self.load_project_structure(folder,self.treeWidget) # pathFolder seleccionar la ruta
-       
+
+    def CREATE_DIR(self, folder):
+        """
+        Create directory
+        """
+        if not os.path.isdir(folder):
+            try:
+                os.mkdir(folder)
+            except:
+                QMessageBox.warning(self,"Error","No se pudo crear la carpeta en la ruta: "+folder+". Intente crear la ruta manualmente.")
+
     def selectTreeChilds(self):
         for i in range(0,self.childCount()):
             self.child(i).setSelected(True)
@@ -103,8 +115,56 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                             parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_raster.ico')))
                             definido = 1
                             break
+    
 
+    def CREATE_PROJECT(self):
+        # Comprobar nombre proyecto
+        if self.nameProject.text() != '': 
+            pass 
+        else: 
+            return QMessageBox.warning(self,"Error","No se ha introducido un nombre para el proyecto")
+        
+        # Comprobar directorio
+        if os.path.isdir(self.pathFolderProject.text()): 
+            pass 
+        else: 
+            return QMessageBox.warning(self,"Error","Carpeta de proyecto no válida")
+        
+        # Comprobar que elementos del árbol estan seleccionados
+        selected_items = self.treeWidget.selectedItems()
+        for item in selected_items:
+            # Haz algo con el elemento seleccionado
+            print(item.text(0))
+
+        self.createProjectQGIS(self.pathFolderProject.text(), self.nameProject.text(), 25830)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
         event.accept()
+
+
+# EXTENSIONES_SHP = ['.cpg','.dbf','.prj','.sbn','.sbx','.shp.xml','shx']
+# for ext in EXTENSIONES_SHP:
+#     if os.path.isfile(name.replace('.shp',ext)):
+#       # Copiar
+
+    def createProjectQGIS(self, path, filename, crs):
+        """
+        Create project QGIS with path and filename
+        """
+        path_file = os.path.join(path, filename+'.qgs')
+        project = QgsProject()
+        project.setFileName(filename)
+        project.setCrs(QgsCoordinateReferenceSystem(crs, QgsCoordinateReferenceSystem.EpsgCrsId))
+        self.saveProject(project, path_file)
+        return project
+    
+    def saveProject(self, project, path_save=None):
+        """
+        Save project:  path_save automatic when None from current path
+        """
+        if path_save==None:
+            project.write(project.absoluteFilePath())
+        else:
+            project.write(path_save)
+        return project
