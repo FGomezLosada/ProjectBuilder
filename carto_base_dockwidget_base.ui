@@ -85,9 +85,12 @@
           <property name="verticalScrollMode">
            <enum>QAbstractItemView::ScrollPerPixel</enum>
           </property>
+          <property name="columnCount">
+           <number>1</number>
+          </property>
           <column>
            <property name="text">
-            <string notr="true">1</string>
+            <string>Selección de capas</string>
            </property>
           </column>
          </widget>
