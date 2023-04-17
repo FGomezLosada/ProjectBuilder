@@ -230,3 +230,4 @@ class CartoBase:
         # TODO: fix to allow choice of dock location
         self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
         self.dockwidget.show()
+

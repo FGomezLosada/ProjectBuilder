@@ -136,7 +136,10 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             # Haz algo con el elemento seleccionado
             print(item.text(0))
 
-        self.createProjectQGIS(self.pathFolderProject.text(), self.nameProject.text(), 25830)
+        # Comprobar CRS seleccionado
+        selected_CRS = int(self.selectProjection.crs().authid().split(':')[1])
+
+        project=self.createProjectQGIS(self.pathFolderProject.text(), self.nameProject.text(), selected_CRS)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
@@ -168,3 +171,28 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         else:
             project.write(path_save)
         return project
+    
+
+    # #Add wms
+    # self.addWmsToProject(project, dict_wms_ortofoto, position=-1, group_name='Ortofoto_WMS', visibility_layer=False, visibility_group=False, exclusive_group=True)
+
+    def addLayerToProject(self, project, path_layer, type_layer = 'ogr', name_layer='', qml_path=None):
+        """
+        Add vector/raster layers to project 
+        """
+      
+        if type_layer == 'shp':
+            provider = 'ogr'
+            layer = QgsVectorLayer(path_layer,name_layer,provider)
+            layer.setProviderEncoding(u'UTF-8')
+        elif type_layer == 'raster':
+            layer = QgsRasterLayer(path_layer,name_layer)
+        else:
+            return QMessageBox.warning(self,"Error",f"Error en la capa: {name_layer}. No se reconoce el tipo")
+        
+        #Add qml
+        if qml_path != None:
+            layer.loadNamedStyle(qml_path)
+            
+        # project.addMapLayer(layer,False)
+        # root = project.layerTreeRoot() #Acceder árbol
