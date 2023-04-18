@@ -137,7 +137,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             print(item.text(0))
 
         # Comprobar CRS seleccionado
-        selected_CRS = int(self.selectProjection.crs().authid().split(':')[1])
+        selected_CRS = self.selectProjection.crs().postgisSrid()
 
         project=self.createProjectQGIS(self.pathFolderProject.text(), self.nameProject.text(), selected_CRS)
 
@@ -194,5 +194,3 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if qml_path != None:
             layer.loadNamedStyle(qml_path)
             
-        # project.addMapLayer(layer,False)
-        # root = project.layerTreeRoot() #Acceder árbol
