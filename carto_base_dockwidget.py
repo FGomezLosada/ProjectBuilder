@@ -187,7 +187,11 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         paths_target = [f.replace(pathFolder,pathFolderProject) for f in paths_source]
 
         # print(paths_target)
-        project = self.createProjectQGIS(pathFolderProject, nameProject, 25830)
+        
+        # Comprobar CRS seleccionado
+        selected_CRS = self.selectProjection.crs().postgisSrid()
+        
+        project = self.createProjectQGIS(pathFolderProject, nameProject, selected_CRS)
 
         for path_source, path_target in zip(paths_source, paths_target):
             if os.path.isdir(path_source):
@@ -213,8 +217,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.saveProject(project)
 
         
-
-
+    
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
@@ -254,11 +257,11 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return project
 
 
-
     def addLayerToProject(self, project, path_layer, type_layer = 'shp', name_layer=''):
         """
         Add vector/raster layers to project 
         """
+
         if type_layer == 'shp':
             provider = 'ogr'
             layer = QgsVectorLayer(path_layer,name_layer,provider)
@@ -269,6 +272,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return QMessageBox.warning(self,"Error",f"Error en la capa: {name_layer}. No se reconoce el tipo")
         
         #Add qml
+        
         # if qml_path != None:
         #     layer.loadNamedStyle(qml_path)
             
@@ -277,3 +281,4 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         root.insertChildNode(0, QgsLayerTreeLayer(layer)) #Crear capa dentro de grupo
         root.findLayer(layer.id()).setExpanded(False)
         root.findLayer(layer.id()).setItemVisibilityChecked(False)
+
