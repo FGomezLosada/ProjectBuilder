@@ -26,12 +26,15 @@ import os
 from qgis.core import *
 
 from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import Qt
 
 from PyQt5.QtWidgets import *
 from qgis.PyQt.QtWidgets import QMessageBox
 
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal
+
+import shutil
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'carto_base_dockwidget_base.ui'))
@@ -56,16 +59,27 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER_AND_PROJECT(self.pathFolder))
         self.selectFolderProject.clicked.connect(lambda: self.SELECT_FOLDER(self.pathFolderProject))
         self.createProject.clicked.connect(lambda: self.CREATE_PROJECT())
+        self.treeWidget.itemActivated.connect(self.selectTreeChilds)
+        self.treeWidget.clear()
+        # self.idItem = 0
+        # self.dictItems = {}
+
+
 
     def SELECT_FOLDER(self,qt_element):
         folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.DontResolveSymlinks)
         qt_element.setText(folder)
  
+
+
     def SELECT_FOLDER_AND_PROJECT(self,qt_element):
         folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.DontResolveSymlinks)
         qt_element.setText(folder)
         self.treeWidget.clear()
-        self.load_project_structure(folder,self.treeWidget) # pathFolder seleccionar la ruta
+        if os.path.isdir(folder):
+            self.load_project_structure(folder,self.treeWidget) # pathFolder seleccionar la ruta
+
+
 
     def CREATE_DIR(self, folder):
         """
@@ -76,11 +90,30 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 os.mkdir(folder)
             except:
                 QMessageBox.warning(self,"Error","No se pudo crear la carpeta en la ruta: "+folder+". Intente crear la ruta manualmente.")
-
-    def selectTreeChilds(self):
-        for i in range(0,self.childCount()):
-            self.child(i).setSelected(True)
     
+
+
+    def selectTreeChilds(self, item, column, select = 0):
+        # Recorrer todos los elementos secundarios y seleccionarlos
+        if select == 0:
+            if item.isSelected():
+                select == 1 #False
+                selectBool = True
+            else:
+                select == 2
+                selectBool = False
+        else:
+            if select == 1:
+                selectBool = True
+            else:
+                selectBool = False
+        for i in range(item.childCount()):
+            child_item = item.child(i)
+            child_item.setSelected(selectBool)
+            self.selectTreeChilds(child_item, column, select=selectBool) #AttributeError: 'QTreeWidget' object has no attribute 'selectTreeChilds'
+    
+
+
     def load_project_structure(self, startpath, tree):
         """
         Load Project structure tree
@@ -98,6 +131,9 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     si_formato = 1
             if si_formato == 1 or os.path.isdir(path_info):
                 parent_itm = QTreeWidgetItem(tree, [os.path.basename(element)])
+                parent_itm.setData(0, Qt.UserRole, path_info)
+                # self.dictItems[self.idItem] = element
+                # self.idItem += 1
             if os.path.isdir(path_info):
                 self.load_project_structure(path_info, parent_itm)
                 # parent_itm.itemActivated.connect(self.selectTreeChilds())
@@ -117,36 +153,82 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                             break
     
 
+
     def CREATE_PROJECT(self):
         # Comprobar nombre proyecto
-        if self.nameProject.text() != '': 
+        if self.nameProject.text() != '':
+            nameProject =  self.nameProject.text()
             pass 
         else: 
             return QMessageBox.warning(self,"Error","No se ha introducido un nombre para el proyecto")
         
         # Comprobar directorio
-        if os.path.isdir(self.pathFolderProject.text()): 
+        if os.path.isdir(self.pathFolderProject.text()):
+            pathFolderProject = self.pathFolderProject.text()
             pass 
         else: 
             return QMessageBox.warning(self,"Error","Carpeta de proyecto no válida")
+
+        # Comprobar directorio
+        if os.path.isdir(self.pathFolder.text()):
+            pathFolder = self.pathFolder.text()
+            pass 
+        else: 
+            return QMessageBox.warning(self,"Error","Carpeta de capas no válida")
         
         # Comprobar que elementos del árbol estan seleccionados
         selected_items = self.treeWidget.selectedItems()
+        paths_source = []
         for item in selected_items:
             # Haz algo con el elemento seleccionado
-            print(item.text(0))
+            paths_source.append(item.data(0, Qt.UserRole))
+        # print(paths_source)
 
-        self.createProjectQGIS(self.pathFolderProject.text(), self.nameProject.text(), 25830)
+        paths_target = [f.replace(pathFolder,pathFolderProject) for f in paths_source]
+
+        # print(paths_target)
+        project = self.createProjectQGIS(pathFolderProject, nameProject, 25830)
+
+        for path_source, path_target in zip(paths_source, paths_target):
+            if os.path.isdir(path_source):
+                os.makedirs(path_target, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(path_target), exist_ok=True)
+                shutil.copyfile(path_source, path_target)
+                filename = os.path.basename(path_target)
+                name_layer = os.path.splitext(filename)[0]
+                ext_layer = os.path.splitext(filename)[1]
+                print(name_layer, ext_layer)
+                if ext_layer in ('.shp'):
+                    type_layer = 'shp'
+                else:
+                    type_layer = 'raster'
+                print(type_layer)
+                print(path_target)
+                print(path_target.replace(pathFolderProject,''))
+
+                self.addLayerToProject(project, path_target, type_layer = type_layer, name_layer=name_layer) #path_target.replace(pathFolderProject,'')
+                #Integrar copy shp y otros
+        
+        self.saveProject(project)
+
+        
+
+
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
         event.accept()
 
 
-# EXTENSIONES_SHP = ['.cpg','.dbf','.prj','.sbn','.sbx','.shp.xml','shx']
-# for ext in EXTENSIONES_SHP:
-#     if os.path.isfile(name.replace('.shp',ext)):
-#       # Copiar
+
+    def copySHP(source_shp,target_shp):
+        EXTENSIONES_SHP = ['.cpg','.dbf','.prj','.sbn','.sbx','.shp.xml','shx']
+        for ext in EXTENSIONES_SHP:
+            print(ext)
+            #Reemplazar terminación shp por ext y utilizar copy desde source a target source es un archivo
+
+
 
     def createProjectQGIS(self, path, filename, crs):
         """
@@ -158,7 +240,9 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         project.setCrs(QgsCoordinateReferenceSystem(crs, QgsCoordinateReferenceSystem.EpsgCrsId))
         self.saveProject(project, path_file)
         return project
-    
+
+
+
     def saveProject(self, project, path_save=None):
         """
         Save project:  path_save automatic when None from current path
@@ -168,3 +252,28 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         else:
             project.write(path_save)
         return project
+
+
+
+    def addLayerToProject(self, project, path_layer, type_layer = 'shp', name_layer=''):
+        """
+        Add vector/raster layers to project 
+        """
+        if type_layer == 'shp':
+            provider = 'ogr'
+            layer = QgsVectorLayer(path_layer,name_layer,provider)
+            layer.setProviderEncoding(u'UTF-8')
+        elif type_layer == 'raster':
+            layer = QgsRasterLayer(path_layer,name_layer)
+        else:
+            return QMessageBox.warning(self,"Error",f"Error en la capa: {name_layer}. No se reconoce el tipo")
+        
+        #Add qml
+        # if qml_path != None:
+        #     layer.loadNamedStyle(qml_path)
+            
+        project.addMapLayer(layer,False)
+        root = project.layerTreeRoot()
+        root.insertChildNode(0, QgsLayerTreeLayer(layer)) #Crear capa dentro de grupo
+        root.findLayer(layer.id()).setExpanded(False)
+        root.findLayer(layer.id()).setItemVisibilityChecked(False)

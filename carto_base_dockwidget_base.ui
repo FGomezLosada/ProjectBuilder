@@ -62,39 +62,6 @@
         <item row="9" column="0">
          <widget class="QLineEdit" name="pathFolderProject"/>
         </item>
-        <item row="5" column="0">
-         <widget class="QTreeWidget" name="treeWidget">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>16777215</width>
-            <height>150</height>
-           </size>
-          </property>
-          <property name="selectionMode">
-           <enum>QAbstractItemView::MultiSelection</enum>
-          </property>
-          <property name="selectionBehavior">
-           <enum>QAbstractItemView::SelectItems</enum>
-          </property>
-          <property name="verticalScrollMode">
-           <enum>QAbstractItemView::ScrollPerPixel</enum>
-          </property>
-          <property name="columnCount">
-           <number>1</number>
-          </property>
-          <column>
-           <property name="text">
-            <string>Selección de capas</string>
-           </property>
-          </column>
-         </widget>
-        </item>
         <item row="4" column="0">
          <widget class="QLabel" name="label">
           <property name="text">
@@ -127,6 +94,51 @@
           <property name="text">
            <string>Crear proyecto</string>
           </property>
+         </widget>
+        </item>
+        <item row="5" column="0">
+         <widget class="QTreeWidget" name="treeWidget">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>16777215</width>
+            <height>150</height>
+           </size>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::StyledPanel</enum>
+          </property>
+          <property name="autoScroll">
+           <bool>true</bool>
+          </property>
+          <property name="editTriggers">
+           <set>QAbstractItemView::NoEditTriggers</set>
+          </property>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::MultiSelection</enum>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectItems</enum>
+          </property>
+          <property name="verticalScrollMode">
+           <enum>QAbstractItemView::ScrollPerPixel</enum>
+          </property>
+          <property name="expandsOnDoubleClick">
+           <bool>false</bool>
+          </property>
+          <property name="columnCount">
+           <number>1</number>
+          </property>
+          <column>
+           <property name="text">
+            <string>Panel de selección</string>
+           </property>
+          </column>
          </widget>
         </item>
        </layout>
