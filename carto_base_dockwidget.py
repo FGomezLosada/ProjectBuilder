@@ -59,7 +59,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER_AND_PROJECT(self.pathFolder))
         self.selectFolderProject.clicked.connect(lambda: self.SELECT_FOLDER(self.pathFolderProject))
         self.createProject.clicked.connect(lambda: self.CREATE_PROJECT())
-        self.treeWidget.itemActivated.connect(self.selectTreeChilds)
+        self.treeWidget.itemActivated.connect(self.selectTreeChilds) #Función selección hijos en el árbol (con el doble click)
         self.treeWidget.clear()
         # self.idItem = 0
         # self.dictItems = {}
@@ -122,6 +122,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         :return: 
         """
         lista_vectoriales = ('.shp','.gpk')
+        lista_raster = ('.tif','.ecw')
         lista_todos = ('.shp','.gpk','.tif','.ecw')
         for element in os.listdir(startpath):
             path_info = startpath + "/" + element
@@ -131,24 +132,21 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     si_formato = 1
             if si_formato == 1 or os.path.isdir(path_info):
                 parent_itm = QTreeWidgetItem(tree, [os.path.basename(element)])
-                parent_itm.setData(0, Qt.UserRole, path_info)
-                # self.dictItems[self.idItem] = element
-                # self.idItem += 1
-            if os.path.isdir(path_info):
+                parent_itm.setData(0, Qt.UserRole, path_info) #Se le guarda la ruta al objeto internamente (se ve en el panel el nombre, pero no la ruta)
+            if os.path.isdir(path_info): #Se comprueba si es un directorio
                 self.load_project_structure(path_info, parent_itm)
-                # parent_itm.itemActivated.connect(self.selectTreeChilds())
-                parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','folder.ico')))
-            else:
+                parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','folder.png')))
+            else: #Si no es un directorio...
                 definido = 0
                 for ext in lista_vectoriales:
-                    if element.endswith(ext):
-                        parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_vectorial.ico')))
+                    if element.endswith(ext): #Comprobar si es extensión vectorial y añade icono
+                        parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_vectorial.png')))
                         definido = 1
                         break
-                if definido == 0:
-                    for ext in ('.tif','.ecw'):
+                if definido == 0: #Si es 0 no es vectorial y ñade icono raster
+                    for ext in lista_raster:
                         if element.endswith(ext):
-                            parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_raster.ico')))
+                            parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_raster.png')))
                             definido = 1
                             break
     
@@ -174,48 +172,45 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             pathFolder = self.pathFolder.text()
             pass 
         else: 
-            return QMessageBox.warning(self,"Error","Carpeta de capas no válida")
+            return QMessageBox.warning(self,"Error","Acceso a capas no válido")
         
         # Comprobar que elementos del árbol estan seleccionados
         selected_items = self.treeWidget.selectedItems()
-        paths_source = []
-        for item in selected_items:
+        paths_source = [] #Esta será la lista donde se añaden las rutas de los elementos seleccionados
+        for item in selected_items: #Comprueba los items seleccionados y añade la ruta a paths_source
             # Haz algo con el elemento seleccionado
-            paths_source.append(item.data(0, Qt.UserRole))
-        # print(paths_source)
+            paths_source.append(item.data(0, Qt.UserRole)) #Recupera la ruta guardada internamente con Data de la línea 135
 
-        paths_target = [f.replace(pathFolder,pathFolderProject) for f in paths_source]
+        paths_target = [f.replace(pathFolder,pathFolderProject) for f in paths_source] #Reemplaza las rutas de origen de las capas por las nuevas rutas de destino (carpeta proyecto elegida)
 
-        # print(paths_target)
         
         # Comprobar CRS seleccionado
         selected_CRS = self.selectProjection.crs().postgisSrid()
         
         project = self.createProjectQGIS(pathFolderProject, nameProject, selected_CRS)
 
-        for path_source, path_target in zip(paths_source, paths_target):
-            if os.path.isdir(path_source):
-                os.makedirs(path_target, exist_ok=True)
+        for path_source, path_target in zip(paths_source, paths_target):# bucle con dos variables a la vez
+            if os.path.isdir(path_source): #Comprobar si es un directorio
+                os.makedirs(path_target, exist_ok=True) #Crear directorio si lo es y de forma recursiva (creando las carpetas y subcarpetas donde este el archivo)
             else:
                 os.makedirs(os.path.dirname(path_target), exist_ok=True)
-                shutil.copyfile(path_source, path_target)
+                shutil.copyfile(path_source, path_target) #Copia la ruta del origen a la capa de destino
                 filename = os.path.basename(path_target)
                 name_layer = os.path.splitext(filename)[0]
                 ext_layer = os.path.splitext(filename)[1]
-                print(name_layer, ext_layer)
                 if ext_layer in ('.shp'):
                     type_layer = 'shp'
                 else:
                     type_layer = 'raster'
-                print(type_layer)
-                print(path_target)
-                print(path_target.replace(pathFolderProject,''))
 
-                self.addLayerToProject(project, path_target, type_layer = type_layer, name_layer=name_layer) #path_target.replace(pathFolderProject,'')
+                self.addLayerToProject(project, path_target, type_layer = type_layer, name_layer = name_layer) #path_target.replace(pathFolderProject,'')
                 #Integrar copy shp y otros
         
         self.saveProject(project)
-
+        #Aquí mensaje de que ha creado el proyecto
+        # Tenemos que copiar todos los archivos con extensiones auxiliares a shp
+        #Tenemos que reemplazar sobre source_shp la extension del shp por las otras extensiones. Y cada vez, comprobar si el archivo existe (os.path.isfile)
+        # Si existe, debemos copiar el archivo a la nueva ruta target_shp, teniendo en cuenta que debemos reemplazar nuevamente la extension del archivo de destino
         
     
 
@@ -230,6 +225,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for ext in EXTENSIONES_SHP:
             print(ext)
             #Reemplazar terminación shp por ext y utilizar copy desde source a target source es un archivo
+            #Shutil.CopyFile chequeando si el archivo existe
 
 
 
@@ -276,9 +272,9 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # if qml_path != None:
         #     layer.loadNamedStyle(qml_path)
             
-        project.addMapLayer(layer,False)
+        project.addMapLayer(layer,False) #Se añade al mapa pero no aparece en el árbol
         root = project.layerTreeRoot()
-        root.insertChildNode(0, QgsLayerTreeLayer(layer)) #Crear capa dentro de grupo
-        root.findLayer(layer.id()).setExpanded(False)
-        root.findLayer(layer.id()).setItemVisibilityChecked(False)
+        root.insertChildNode(0, QgsLayerTreeLayer(layer)) #Se añade al árbol de capas. el índice 0 indica la posición en el árbol de capas
+        root.findLayer(layer.id()).setExpanded(False) #La capa aparece sin expandir
+        root.findLayer(layer.id()).setItemVisibilityChecked(False) #La capa aparece no visible
 
