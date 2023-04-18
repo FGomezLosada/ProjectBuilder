@@ -25,6 +25,10 @@
 import os
 from qgis.core import *
 
+from qgis.gui import (
+    QgsMessageBar,
+)
+
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
 
@@ -45,7 +49,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     closingPlugin = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, iface, parent=None):
         """Constructor."""
         super(CartoBaseDockWidget, self).__init__(parent)
         # Set up the user interface from Designer.
@@ -54,6 +58,9 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # http://doc.qt.io/qt-5/designer-using-a-ui-file.html
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
+
+        self.iface = iface
+
 
         # Disparadores
         self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER_AND_PROJECT(self.pathFolder))
@@ -207,7 +214,13 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 #Integrar copy shp y otros
         
         self.saveProject(project)
-        #Aquí mensaje de que ha creado el proyecto
+        
+        #Aquí mensaje de que se ha creado el proyecto
+        # output_dir = f'<a href="file:///{self.pathFolderProject}">{self.pathFolderProject}</a>'
+        # success_message = 'Proyecto creado en <b>%s</b>' % (output_dir)
+        success_message = 'Proyecto creado en <b>%s</b>' % (pathFolderProject)
+        self.iface.messageBar().pushMessage("Success", success_message, level=Qgis.Success, duration=10)
+        
         # Tenemos que copiar todos los archivos con extensiones auxiliares a shp
         #Tenemos que reemplazar sobre source_shp la extension del shp por las otras extensiones. Y cada vez, comprobar si el archivo existe (os.path.isfile)
         # Si existe, debemos copiar el archivo a la nueva ruta target_shp, teniendo en cuenta que debemos reemplazar nuevamente la extension del archivo de destino
