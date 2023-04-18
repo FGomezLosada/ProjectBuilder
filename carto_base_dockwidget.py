@@ -221,10 +221,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         success_message = 'Proyecto creado en <b>%s</b>' % (pathFolderProject)
         self.iface.messageBar().pushMessage("Success", success_message, level=Qgis.Success, duration=10)
         
-        # Tenemos que copiar todos los archivos con extensiones auxiliares a shp
-        #Tenemos que reemplazar sobre source_shp la extension del shp por las otras extensiones. Y cada vez, comprobar si el archivo existe (os.path.isfile)
-        # Si existe, debemos copiar el archivo a la nueva ruta target_shp, teniendo en cuenta que debemos reemplazar nuevamente la extension del archivo de destino
-        
+                
     
 
     def closeEvent(self, event):
@@ -236,9 +233,17 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def copySHP(source_shp,target_shp):
         EXTENSIONES_SHP = ['.cpg','.dbf','.prj','.sbn','.sbx','.shp.xml','shx']
         for ext in EXTENSIONES_SHP:
+            # if os.path.isfile(source_shp): #Comprobar si es un archivo
+            #     shutil.copyfile(source_shp, target_shp) #Copia la ruta del origen(souurce) al destino (target)
             print(ext)
             #Reemplazar terminación shp por ext y utilizar copy desde source a target source es un archivo
             #Shutil.CopyFile chequeando si el archivo existe
+
+            # Tenemos que copiar todos los archivos con extensiones auxiliares a shp
+            #Tenemos que reemplazar sobre source_shp la extension del shp por las otras extensiones. 
+            # Y cada vez, comprobar si el archivo existe (os.path.isfile)
+            # Si existe, debemos copiar el archivo a la nueva ruta target_shp, teniendo en cuenta que 
+            # debemos reemplazar nuevamente la extension del archivo de destino
 
 
 
