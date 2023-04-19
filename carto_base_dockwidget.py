@@ -218,7 +218,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         #Aquí mensaje de que se ha creado el proyecto
         # output_dir = f'<a href="file:///{self.pathFolderProject}">{self.pathFolderProject}</a>'
         # success_message = 'Proyecto creado en <b>%s</b>' % (output_dir)
-        success_message = 'Proyecto creado en <b>%s</b>' % (pathFolderProject)
+        success_message = f"Proyecto creado en la ruta: <a href='file:///{pathFolderProject}'>{pathFolderProject} </a> "
         self.iface.messageBar().pushMessage("Success", success_message, level=Qgis.Success, duration=10)
         
                 
