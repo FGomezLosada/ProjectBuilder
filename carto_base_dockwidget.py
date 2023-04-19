@@ -37,6 +37,9 @@ from qgis.PyQt.QtWidgets import QMessageBox
 
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal
+from .wms.wms import dict_wms
+
+import processing
 
 import shutil
 
@@ -68,11 +71,15 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.createProject.clicked.connect(lambda: self.CREATE_PROJECT())
         self.treeWidget.itemActivated.connect(self.selectTreeChilds) #Función selección hijos en el árbol (con el doble click)
         self.treeWidget.clear()
-        # self.idItem = 0
-        # self.dictItems = {}
+        self.addWMStoCombo() #Llamar a funcion añade wms a combo al inicio
 
 
 
+    def closeEvent(self, event):
+        self.closingPlugin.emit()
+        event.accept()
+    
+    
     def SELECT_FOLDER(self,qt_element):
         folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.DontResolveSymlinks)
         qt_element.setText(folder)
@@ -189,7 +196,6 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             paths_source.append(item.data(0, Qt.UserRole)) #Recupera la ruta guardada internamente con Data de la línea 135
 
         paths_target = [f.replace(pathFolder,pathFolderProject) for f in paths_source] #Reemplaza las rutas de origen de las capas por las nuevas rutas de destino (carpeta proyecto elegida)
-
         
         # Comprobar CRS seleccionado
         selected_CRS = self.selectProjection.crs().postgisSrid()
@@ -201,18 +207,31 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 os.makedirs(path_target, exist_ok=True) #Crear directorio si lo es y de forma recursiva (creando las carpetas y subcarpetas donde este el archivo)
             else:
                 os.makedirs(os.path.dirname(path_target), exist_ok=True)
-                shutil.copyfile(path_source, path_target) #Copia la ruta del origen a la capa de destino
                 filename = os.path.basename(path_target)
                 name_layer = os.path.splitext(filename)[0]
                 ext_layer = os.path.splitext(filename)[1]
-                if ext_layer in ('.shp'):
+
+                if ext_layer.endswith('.shp'):
+                    type_layer = 'shp'
+                elif ext_layer.endswith('.gpkg'):
                     type_layer = 'shp'
                 else:
                     type_layer = 'raster'
 
-                self.addLayerToProject(project, path_target, type_layer = type_layer, name_layer = name_layer) #path_target.replace(pathFolderProject,'')
+                #Función exprotar y reproyectar capa. Requiere crs ene structura EPSG:25830
+                export_result = self.exportLayerToFolder(ext_layer, path_source, path_target, self.selectProjection.crs())
+                if export_result == False:
+                    continue
+
+                self.addLayerToProject(project, path_target, ext_layer, name_layer) #path_target.replace(pathFolderProject,'')
                 #Integrar copy shp y otros
         
+        if self.addWMS.isChecked(): #Si el boton de wms esta activado.. comprobar wms, 
+            if len(self.wmsComboBox.checkedItems()) > 0:
+                self.createGroupLayer( project, 'WMS') # Crear el grupo si hay alguno seleccionado
+                for wms in self.wmsComboBox.checkedItems(): #Recorrer wms seleccionados y obtener name y url del diccionario
+                     self.addWmsToProject(project, wms, dict_wms[wms]['name'], dict_wms[wms]['url'])
+
         self.saveProject(project)
         
         #Aquí mensaje de que se ha creado el proyecto
@@ -222,30 +241,6 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.iface.messageBar().pushMessage("Success", success_message, level=Qgis.Success, duration=10)
         
                 
-    
-
-    def closeEvent(self, event):
-        self.closingPlugin.emit()
-        event.accept()
-
-
-
-    def copySHP(source_shp,target_shp):
-        EXTENSIONES_SHP = ['.cpg','.dbf','.prj','.sbn','.sbx','.shp.xml','shx']
-        for ext in EXTENSIONES_SHP:
-            # if os.path.isfile(source_shp): #Comprobar si es un archivo
-            #     shutil.copyfile(source_shp, target_shp) #Copia la ruta del origen(souurce) al destino (target)
-            print(ext)
-            #Reemplazar terminación shp por ext y utilizar copy desde source a target source es un archivo
-            #Shutil.CopyFile chequeando si el archivo existe
-
-            # Tenemos que copiar todos los archivos con extensiones auxiliares a shp
-            #Tenemos que reemplazar sobre source_shp la extension del shp por las otras extensiones. 
-            # Y cada vez, comprobar si el archivo existe (os.path.isfile)
-            # Si existe, debemos copiar el archivo a la nueva ruta target_shp, teniendo en cuenta que 
-            # debemos reemplazar nuevamente la extension del archivo de destino
-
-
 
     def createProjectQGIS(self, path, filename, crs):
         """
@@ -270,23 +265,55 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             project.write(path_save)
         return project
 
+    #Función de exportación de capa con reproyección
+    def exportLayerToFolder(self, ext, path_source, path_target, src):
+        try:
+            if ext in ('.shp', 'gpkg'):
+                processing.run("native:reprojectlayer", {'INPUT':path_source,
+                                                            'TARGET_CRS':QgsCoordinateReferenceSystem(src),
+                                                            'OPERATION':'+proj=noop',
+                                                            'OUTPUT':path_target})
+            elif ext in ('.tif'):
+                processing.run("gdal:warpreproject", {'INPUT':path_source,
+                                                        'SOURCE_CRS':None,
+                                                        'TARGET_CRS':QgsCoordinateReferenceSystem(src),
+                                                        'RESAMPLING':0,
+                                                        'NODATA':None,
+                                                        'TARGET_RESOLUTION':None,
+                                                        'OPTIONS':'',
+                                                        'DATA_TYPE':0,
+                                                        'TARGET_EXTENT':None,
+                                                        'TARGET_EXTENT_CRS':None,
+                                                        'MULTITHREADING':False,
+                                                        'EXTRA':'',
+                                                        'OUTPUT':path_target})
+            else:
+                QMessageBox.warning(self,"Error",f"El formato: {ext} no está disponible en la exportación")
+                return False
+        except Exception as e:
+            QMessageBox.warning(self,"Error",f"Excepción {e}")
+            return False
+        else:
+            return True
+            
 
-    def addLayerToProject(self, project, path_layer, type_layer = 'shp', name_layer=''):
+
+
+    def addLayerToProject(self, project, path_layer, extension, name_layer):
         """
         Add vector/raster layers to project 
         """
 
-        if type_layer == 'shp':
+        if extension in ('.shp','.gpkg'):
             provider = 'ogr'
             layer = QgsVectorLayer(path_layer,name_layer,provider)
             layer.setProviderEncoding(u'UTF-8')
-        elif type_layer == 'raster':
+        elif extension in ('.tif'):
             layer = QgsRasterLayer(path_layer,name_layer)
         else:
             return QMessageBox.warning(self,"Error",f"Error en la capa: {name_layer}. No se reconoce el tipo")
         
         #Add qml
-        
         # if qml_path != None:
         #     layer.loadNamedStyle(qml_path)
             
@@ -296,3 +323,35 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         root.findLayer(layer.id()).setExpanded(False) #La capa aparece sin expandir
         root.findLayer(layer.id()).setItemVisibilityChecked(False) #La capa aparece no visible
 
+    
+    def createGroupLayer(self, project, group_name):
+        """Función que crea un grupo"""
+
+        root = project.layerTreeRoot()
+        group = root.addGroup(group_name)
+        group.setIsMutuallyExclusive(True)
+        group.setExpanded(False)
+        group.setItemVisibilityChecked(False)
+
+    
+    def addWMStoCombo(self):
+        """Añadir nombres wms a combo"""
+        lista_wms = dict_wms.keys()
+        self.wmsComboBox.clear()
+        self.wmsComboBox.addItems(lista_wms)
+
+
+    def addWmsToProject(self, project, name_tree, name_layer, url):
+        """
+        Add wms layers
+        """
+        root = project.layerTreeRoot() #Se lee el arbol de capas
+        layer = QgsRasterLayer(url, name_layer, 'wms')
+        if not layer.isValid():
+            return QMessageBox.warning(self,"Error",f"El servicio {name_tree} no se ha podido cargar")
+        layer.setName(name_tree)
+        project.addMapLayer(layer,False)
+        rg = root.findGroup('WMS')
+        rg.insertChildNode(0, QgsLayerTreeLayer(layer)) #Crear capa dentro de grupo
+        rg.findLayer(layer.id()).setExpanded(False)
+        rg.findLayer(layer.id()).setItemVisibilityChecked(False)
