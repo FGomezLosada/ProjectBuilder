@@ -47,6 +47,12 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'carto_base_dockwidget_base.ui'))
 pathplugin = os.path.dirname(__file__)
 
+# Diccionario que contiene los wms seleccionables 
+# NOTA: el grupo que crea aparece por defecto 'Mutually Excusive Group. Ver orden de los wms: 1º selec 1º en el grupo. Pestaña wms desactivada hasta activar el check
+dict_wms = {'Unidad administrativa': {'name': 'Unidad administrativa', 'url': 'crs=EPSG:25830&dpiMode=7&format=image/png&layers=AU.AdministrativeUnit&styles&url=https://www.ign.es/wms-inspire/unidades-administrativas', 'crs': 25830, 'type': 'wms'},
+            'Nombres geográficos':{'name':'Nombres geográficos','url':'crs=EPSG:25830&dpiMode=7&format=image/png&layers=GN.GeographicalNames&styles&url=https://www.ign.es/wms-inspire/ngbe','crs': 25830, 'type': 'wms'},
+            'Ortoimagen_PNOA_ma':{'name':'Ortoimagen__PNOA_ma','url':'crs=EPSG:25830&dpiMode=7&format=image/png&layers=OI.OrthoimageCoverage&styles&url=https://www.ign.es/wms-inspire/pnoa-ma','crs': 25830, 'type': 'wms'}}
+
 
 class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
@@ -215,6 +221,8 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     type_layer = 'shp'
                 elif ext_layer.endswith('.gpkg'):
                     type_layer = 'shp'
+                # elif ext_layer.endswith('.qml'):
+                #     type_layer = 'qml'
                 else:
                     type_layer = 'raster'
 
@@ -298,7 +306,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
 
 
-    def addLayerToProject(self, project, path_layer, extension, name_layer):
+    def addLayerToProject(self, project, path_layer, extension, name_layer, qml_path=None):
         """
         Add vector/raster layers to project 
         """
@@ -313,8 +321,8 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return QMessageBox.warning(self,"Error",f"Error en la capa: {name_layer}. No se reconoce el tipo")
         
         #Add qml
-        # if qml_path != None:
-        #     layer.loadNamedStyle(qml_path)
+        if qml_path != None:
+            layer.loadNamedStyle(qml_path)
             
         project.addMapLayer(layer,False) #Se añade al mapa pero no aparece en el árbol
         root = project.layerTreeRoot()
