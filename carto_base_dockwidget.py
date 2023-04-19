@@ -135,9 +135,9 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         :param tree: 
         :return: 
         """
-        lista_vectoriales = ('.shp','.gpk')
+        lista_vectoriales = ('.shp','.gpkg')
         lista_raster = ('.tif','.ecw')
-        lista_todos = ('.shp','.gpk','.tif','.ecw')
+        lista_todos = ('.shp','.gpkg','.tif','.ecw')
         for element in os.listdir(startpath):
             path_info = startpath + "/" + element
             si_formato = 0
@@ -218,7 +218,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 else:
                     type_layer = 'raster'
 
-                #Función exprotar y reproyectar capa. Requiere crs ene structura EPSG:25830
+                #Función exportar y reproyectar capa. Requiere crs en estructura EPSG:25830
                 export_result = self.exportLayerToFolder(ext_layer, path_source, path_target, self.selectProjection.crs())
                 if export_result == False:
                     continue
@@ -234,9 +234,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         self.saveProject(project)
         
-        #Aquí mensaje de que se ha creado el proyecto
-        # output_dir = f'<a href="file:///{self.pathFolderProject}">{self.pathFolderProject}</a>'
-        # success_message = 'Proyecto creado en <b>%s</b>' % (output_dir)
+        #Mensaje de que se ha creado el proyecto
         success_message = f"Proyecto creado en la ruta: <a href='file:///{pathFolderProject}'>{pathFolderProject} </a> "
         self.iface.messageBar().pushMessage("Success", success_message, level=Qgis.Success, duration=10)
         
@@ -265,10 +263,11 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             project.write(path_save)
         return project
 
+
     #Función de exportación de capa con reproyección
     def exportLayerToFolder(self, ext, path_source, path_target, src):
         try:
-            if ext in ('.shp', 'gpkg'):
+            if ext in ('.shp', '.gpkg'):
                 processing.run("native:reprojectlayer", {'INPUT':path_source,
                                                             'TARGET_CRS':QgsCoordinateReferenceSystem(src),
                                                             'OPERATION':'+proj=noop',
