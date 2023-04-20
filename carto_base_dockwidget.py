@@ -38,6 +38,7 @@ from qgis.PyQt.QtWidgets import QMessageBox
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal
 from .wms.wms import dict_wms
+from osgeo import ogr
 
 import processing
 
@@ -47,11 +48,6 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'carto_base_dockwidget_base.ui'))
 pathplugin = os.path.dirname(__file__)
 
-# Diccionario que contiene los wms seleccionables 
-# NOTA: el grupo que crea aparece por defecto 'Mutually Excusive Group. Ver orden de los wms: 1º selec 1º en el grupo. Pestaña wms desactivada hasta activar el check
-dict_wms = {'Unidad administrativa': {'name': 'Unidad administrativa', 'url': 'crs=EPSG:25830&dpiMode=7&format=image/png&layers=AU.AdministrativeUnit&styles&url=https://www.ign.es/wms-inspire/unidades-administrativas', 'crs': 25830, 'type': 'wms'},
-            'Nombres geográficos':{'name':'Nombres geográficos','url':'crs=EPSG:25830&dpiMode=7&format=image/png&layers=GN.GeographicalNames&styles&url=https://www.ign.es/wms-inspire/ngbe','crs': 25830, 'type': 'wms'},
-            'Ortoimagen_PNOA_ma':{'name':'Ortoimagen__PNOA_ma','url':'crs=EPSG:25830&dpiMode=7&format=image/png&layers=OI.OrthoimageCoverage&styles&url=https://www.ign.es/wms-inspire/pnoa-ma','crs': 25830, 'type': 'wms'}}
 
 
 class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
@@ -194,6 +190,9 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         else: 
             return QMessageBox.warning(self,"Error","Acceso a capas no válido")
         
+        if self.addWMS.isChecked() and len(self.wmsComboBox.checkedItems()) == 0:
+            return QMessageBox.warning(self,"Error",f"No ha seleccionado ningún WMS")
+
         # Comprobar que elementos del árbol estan seleccionados
         selected_items = self.treeWidget.selectedItems()
         paths_source = [] #Esta será la lista donde se añaden las rutas de los elementos seleccionados
@@ -219,20 +218,21 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
                 if ext_layer.endswith('.shp'):
                     type_layer = 'shp'
+                    qml_layer = path_source.replace('.shp','.qml')
                 elif ext_layer.endswith('.gpkg'):
                     type_layer = 'shp'
-                # elif ext_layer.endswith('.qml'):
-                #     type_layer = 'qml'
+                    qml_layer = None
                 else:
                     type_layer = 'raster'
+                    qml_layer = path_source.replace('.tif','.qml')
 
                 #Función exportar y reproyectar capa. Requiere crs en estructura EPSG:25830
                 export_result = self.exportLayerToFolder(ext_layer, path_source, path_target, self.selectProjection.crs())
                 if export_result == False:
                     continue
 
-                self.addLayerToProject(project, path_target, ext_layer, name_layer) #path_target.replace(pathFolderProject,'')
-                #Integrar copy shp y otros
+                self.addLayerToProject(project, path_target, ext_layer, name_layer, qml_layer)
+
         
         if self.addWMS.isChecked(): #Si el boton de wms esta activado.. comprobar wms, 
             if len(self.wmsComboBox.checkedItems()) > 0:
@@ -311,19 +311,35 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         Add vector/raster layers to project 
         """
 
-        if extension in ('.shp','.gpkg'):
+        if extension in ('.shp'):
             provider = 'ogr'
             layer = QgsVectorLayer(path_layer,name_layer,provider)
             layer.setProviderEncoding(u'UTF-8')
+            self.addLayerToRoot(project, layer, qml_path)
+        elif extension in ('.gpkg'):
+            # conn = ogr.Open(path_layer)
+            layer0 = QgsVectorLayer(path_layer, name_layer, 'ogr')
+            subLayers =layer0.dataProvider().subLayers()
+            for subLayer in subLayers:
+                name = subLayer.split('!!::!!')[1]
+                uri = "%s|layername=%s" % (path_layer, name,)
+                # Create layer
+                sub_layer = QgsVectorLayer(uri, name, 'ogr')
+                # Add layer to map
+                self.addLayerToRoot(project, sub_layer, qml_path)
         elif extension in ('.tif'):
             layer = QgsRasterLayer(path_layer,name_layer)
+            self.addLayerToRoot(project, layer, qml_path)
         else:
             return QMessageBox.warning(self,"Error",f"Error en la capa: {name_layer}. No se reconoce el tipo")
         
+
+
+    def addLayerToRoot(self, project, layer, qml_path):
         #Add qml
         if qml_path != None:
             layer.loadNamedStyle(qml_path)
-            
+
         project.addMapLayer(layer,False) #Se añade al mapa pero no aparece en el árbol
         root = project.layerTreeRoot()
         root.insertChildNode(0, QgsLayerTreeLayer(layer)) #Se añade al árbol de capas. el índice 0 indica la posición en el árbol de capas
@@ -336,7 +352,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         root = project.layerTreeRoot()
         group = root.addGroup(group_name)
-        group.setIsMutuallyExclusive(True)
+        group.setIsMutuallyExclusive(False) #True (permite activar una sola capa), False (permite activar varias capas a la vez)
         group.setExpanded(False)
         group.setItemVisibilityChecked(False)
 
@@ -359,6 +375,6 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         layer.setName(name_tree)
         project.addMapLayer(layer,False)
         rg = root.findGroup('WMS')
-        rg.insertChildNode(0, QgsLayerTreeLayer(layer)) #Crear capa dentro de grupo
+        rg.insertChildNode(-1, QgsLayerTreeLayer(layer)) #Crear capa dentro de grupo (se le cambia el valor 0 por -1 para que el orden del combowms sea el mismo en el grupo de capas creado)
         rg.findLayer(layer.id()).setExpanded(False)
         rg.findLayer(layer.id()).setItemVisibilityChecked(False)
