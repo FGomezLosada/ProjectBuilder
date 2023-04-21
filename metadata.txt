@@ -3,7 +3,7 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=CartoBase
+name=ProjectBuilder
 qgisMinimumVersion=3.0
 description=Crea un proyecto con la cartografía base seleccionada
 version=0.1
