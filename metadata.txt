@@ -5,12 +5,12 @@
 [general]
 name=ProjectBuilder
 qgisMinimumVersion=3.0
-description=Plugin para crear un proyecto de QGIS con una selección previa de capas y servicios WMS
+description=Plugin para crear un proyecto de QGIS con una selección previa de capas y servicios
 version=0.1
 author=Francisco Gómez Losada
 email=pgomezlosada@gmail.com
 
-about=Este plugin genera un proyecto de QGIS mediante la configuración de una serie de parámetros previos (carpeta de origen y selección de las capas y los servicios wms; nombre, SRC y destino del proyecto)
+about=Este plugin genera un proyecto de QGIS mediante la configuración de una serie de parámetros previos (origen, selección y destino de los datos; Selección servicios WMS; Nombre, SRC y destino del proyecto)
 
 tracker=https://github.com/FGomezLosada/ProjectBuilder/issues
 repository=https://github.com/FGomezLosada/ProjectBuilder.git
