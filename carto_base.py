@@ -63,10 +63,10 @@ class CartoBase:
 
         # Declare instance attributes
         self.actions = []
-        self.menu = self.tr(u'&CartoBase')
+        self.menu = self.tr(u'&ProjectBuilder')
         # TODO: We are going to let the user set this up in a future iteration
-        self.toolbar = self.iface.addToolBar(u'CartoBase')
-        self.toolbar.setObjectName(u'CartoBase')
+        self.toolbar = self.iface.addToolBar(u'ProjectBuilder')
+        self.toolbar.setObjectName(u'ProjectBuilder')
 
         #print "** INITIALIZING CartoBase"
 
@@ -201,7 +201,7 @@ class CartoBase:
 
         for action in self.actions:
             self.iface.removePluginMenu(
-                self.tr(u'&CartoBase'),
+                self.tr(u'&ProjectBuilder'),
                 action)
             self.iface.removeToolBarIcon(action)
         # remove the toolbar
