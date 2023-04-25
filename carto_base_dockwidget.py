@@ -97,15 +97,15 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
 
 
-    def CREATE_DIR(self, folder):
-        """
-        Create directory
-        """
-        if not os.path.isdir(folder):
-            try:
-                os.mkdir(folder)
-            except:
-                QMessageBox.warning(self,"Error","No se pudo crear la carpeta en la ruta: "+folder+". Intente crear la ruta manualmente.")
+    # def CREATE_DIR(self, folder):
+    #     """
+    #     Create directory
+    #     """
+    #     if not os.path.isdir(folder):
+    #         try:
+    #             os.mkdir(folder)
+    #         except:
+    #             QMessageBox.warning(self,"Error","No se pudo crear la carpeta en la ruta: "+folder+". Intente crear la ruta manualmente.")
     
 
 
@@ -176,14 +176,14 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         else: 
             return QMessageBox.warning(self,"Error","No se ha introducido un nombre para el proyecto")
         
-        # Comprobar directorio
+        # Comprobar directorio proyecto
         if os.path.isdir(self.pathFolderProject.text()):
             pathFolderProject = self.pathFolderProject.text()
             pass 
         else: 
             return QMessageBox.warning(self,"Error","Carpeta de proyecto no válida")
 
-        # Comprobar directorio
+        # Comprobar directorio capas
         if os.path.isdir(self.pathFolder.text()):
             pathFolder = self.pathFolder.text()
             pass 
@@ -198,7 +198,7 @@ class CartoBaseDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         paths_source = [] #Esta será la lista donde se añaden las rutas de los elementos seleccionados
         for item in selected_items: #Comprueba los items seleccionados y añade la ruta a paths_source
             # Haz algo con el elemento seleccionado
-            paths_source.append(item.data(0, Qt.UserRole)) #Recupera la ruta guardada internamente con Data de la línea 135
+            paths_source.append(item.data(0, Qt.UserRole)) #Recupera la ruta guardada internamente con Data de la línea 151
 
         paths_target = [f.replace(pathFolder,pathFolderProject) for f in paths_source] #Reemplaza las rutas de origen de las capas por las nuevas rutas de destino (carpeta proyecto elegida)
         
