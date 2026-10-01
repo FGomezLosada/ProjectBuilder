@@ -15,7 +15,7 @@ from qgis.core import Qgis, QgsApplication
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox, QPushButton, QTreeWidgetItem
+from qgis.PyQt.QtWidgets import QAbstractItemView, QFileDialog, QMessageBox, QPushButton, QTreeWidgetItem
 
 from .core import project as qgis_project
 from .core.task import ExportTask
@@ -52,7 +52,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.selectFolder.clicked.connect(self.select_layers_folder)
         self.selectFolderProject.clicked.connect(self.select_project_folder)
         self.createProject.clicked.connect(lambda: self.create_project())  #lambda: la señal clicked envía un True/False que no queremos recibir
-        self.treeWidget.itemActivated.connect(self.select_tree_children)  #Función selección hijos en el árbol (con el doble click)
+        self.treeWidget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)  #Las capas se eligen con las casillas, no seleccionando filas
         self.treeWidget.clear()
         self.load_wms_combo()  #Llamar a funcion añade wms a combo al inicio
 
@@ -88,19 +88,28 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             item = QTreeWidgetItem(parent, [entry.name])
             item.setData(0, PATH_ROLE, entry.path)  #Se le guarda la ruta al objeto internamente (se ve en el panel el nombre, pero no la ruta)
             item.setIcon(0, QIcon(ICONS.get(entry.kind, RASTER_ICON)))
+            # Casilla de verificación. En las carpetas, AutoTristate hace que marcar la carpeta marque todo su contenido
+            # (y si solo hay algunos elementos marcados, la casilla de la carpeta aparece a medias)
+            flags = item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+            if entry.kind == FOLDER:
+                flags |= Qt.ItemFlag.ItemIsAutoTristate
+            item.setFlags(flags)
+            item.setCheckState(0, Qt.CheckState.Unchecked)
             self._add_tree_items(item, entry.children)  #Recursivo: añade el contenido de las subcarpetas
 
-    def select_tree_children(self, item, column):
-        # Al hacer doble clic en una carpeta, todos sus elementos (y los de sus subcarpetas) toman su mismo estado: seleccionados o no
-        seleccionar = item.isSelected()
-        for i in range(item.childCount()):
-            child_item = item.child(i)
-            child_item.setSelected(seleccionar)
-            self.select_tree_children(child_item, column)  #Llamada recursiva: repite lo mismo dentro de cada subcarpeta
-
     def selected_paths(self):
-        """Rutas de los elementos seleccionados en el árbol (sin repetir)."""
-        return list(dict.fromkeys(item.data(0, PATH_ROLE) for item in self.treeWidget.selectedItems()))
+        """Rutas de los elementos marcados en el árbol (capas y carpetas marcadas por completo)."""
+        paths = []
+
+        def recorrer(item):
+            if item.checkState(0) == Qt.CheckState.Checked:
+                paths.append(item.data(0, PATH_ROLE))
+            for i in range(item.childCount()):
+                recorrer(item.child(i))  #Llamada recursiva: repite lo mismo dentro de cada subcarpeta
+
+        for i in range(self.treeWidget.topLevelItemCount()):
+            recorrer(self.treeWidget.topLevelItem(i))
+        return paths
 
     # ------------------------------------------------------------------ Servicios WMS
 

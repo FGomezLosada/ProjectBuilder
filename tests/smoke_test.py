@@ -12,7 +12,6 @@ import tempfile
 
 import qgis.utils
 from qgis.core import Qgis, QgsCoordinateReferenceSystem, QgsProject
-from qgis.PyQt.QtWidgets import QTreeWidgetItemIterator
 
 qgis.utils.reloadPlugin('project_builder')
 import project_builder.project_builder_dockwidget as dock_module  # noqa: E402
@@ -30,11 +29,18 @@ tmp = tempfile.mkdtemp(prefix="pb_test_").replace('\\', '/')
 dw = dock_module.ProjectBuilderDockWidget(qgis.utils.iface)
 dw.pathFolder.setText(DATA)
 dw.load_tree(DATA)
-it = QTreeWidgetItemIterator(dw.treeWidget)
-while it.value():
-    if it.value().text(0) in SELECCION:
-        it.value().setSelected(True)
-    it += 1
+
+
+def _seleccionar(item):
+    """Recorre el árbol (sin QTreeWidgetItemIterator, que puede cerrar QGIS 4 si sobrevive al árbol)."""
+    if item.text(0) in SELECCION:
+        item.setSelected(True)
+    for i in range(item.childCount()):
+        _seleccionar(item.child(i))
+
+
+for _i in range(dw.treeWidget.topLevelItemCount()):
+    _seleccionar(dw.treeWidget.topLevelItem(_i))
 dw.pathFolderProject.setText(tmp)
 dw.nameProject.setText("prueba")
 dw.selectProjection.setCrs(QgsCoordinateReferenceSystem("EPSG:25830"))
