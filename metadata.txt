@@ -1,47 +1,26 @@
-# This file contains metadata for your plugin.
-
-# This file should be included when you package your plugin.# Mandatory items:
-
 [general]
 name=ProjectBuilder
-qgisMinimumVersion=3.0
-description=Plugin para crear un proyecto de QGIS con una selección previa de capas y servicios
-version=0.1
+qgisMinimumVersion=3.34
+qgisMaximumVersion=4.99
+supportsQt6=True
+description=Crea un proyecto de QGIS con una selección previa de capas y servicios WMS
+about=Genera un proyecto de QGIS a partir de una serie de parámetros: origen, selección y destino de las capas; servicios WMS; nombre, SRC y carpeta del proyecto. Las capas se copian y reproyectan a la carpeta del proyecto.
+version=0.2.0
 author=Francisco Gómez Losada
 email=pgomezlosada@gmail.com
 
-about=Este plugin genera un proyecto de QGIS mediante la configuración de una serie de parámetros previos (origen, selección y destino de los datos; Selección servicios WMS; Nombre, SRC y destino del proyecto)
-
 tracker=https://github.com/FGomezLosada/ProjectBuilder/issues
-repository=https://github.com/FGomezLosada/ProjectBuilder.git
-# End of mandatory metadata
+repository=https://github.com/FGomezLosada/ProjectBuilder
+homepage=https://github.com/FGomezLosada/ProjectBuilder
 
-# Recommended items:
+changelog=
+    0.2.0 - Compatibilidad con QGIS 3.34+ y QGIS 4 (Qt6). Renombrado interno a project_builder.
+    0.1   - Versión inicial (TFM, 2023).
 
-hasProcessingProvider=no
-# Uncomment the following line and add your changelog:
-# changelog=
-
-# Tags are comma separated with spaces allowed
-tags=project, layers
-
-homepage=https://github.com/FGomezLosada/ProjectBuilder.git
+tags=project, layers, wms
 category=Plugins
 icon=icon.png
-# experimental flag
-experimental=False
-
-# deprecated flag (applies to the whole plugin, not just a single version)
+experimental=True
 deprecated=False
-
-# Since QGIS 3.8, a comma separated list of plugins to be installed
-# (or upgraded) can be specified.
-# Check the documentation for more information.
-# plugin_dependencies=
-
-Category of the plugin: Raster, Vector, Database or Web
-# category=
-
-# If the plugin can run on QGIS Server.
+hasProcessingProvider=no
 server=False
-

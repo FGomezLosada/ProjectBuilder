@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>CartoBaseDockWidgetBase</class>
- <widget class="QDockWidget" name="CartoBaseDockWidgetBase">
+ <class>ProjectBuilderDockWidgetBase</class>
+ <widget class="QDockWidget" name="ProjectBuilderDockWidgetBase">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -211,12 +211,12 @@
   <customwidget>
    <class>QgsCheckableComboBox</class>
    <extends>QComboBox</extends>
-   <header>qgscheckablecombobox.h</header>
+   <header>qgis.gui</header>
   </customwidget>
   <customwidget>
    <class>QgsProjectionSelectionWidget</class>
    <extends>QWidget</extends>
-   <header>qgsprojectionselectionwidget.h</header>
+   <header>qgis.gui</header>
   </customwidget>
  </customwidgets>
  <resources/>

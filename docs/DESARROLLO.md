@@ -28,13 +28,20 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 3. Fases: 0 limpieza · 1 migración QGIS 4 · 2 errores · 3 reestructuración · 4 mejoras.
 
 ## Checklist de migración a QGIS 4 / Qt6
-- [ ] Imports `PyQt5` → `qgis.PyQt`
-- [ ] Enums Qt cortos → completos
-- [ ] `exec_()` → `exec()`
-- [ ] `Qgis.Success` → `Qgis.MessageLevel.Success`
-- [ ] `QgsCoordinateReferenceSystem(int, EpsgCrsId)` → `QgsCoordinateReferenceSystem.fromEpsgId()` o el objeto CRS
-- [ ] Quitar `resources.py` (pyrcc5 no existe en Qt6) → rutas de fichero
-- [ ] `metadata.txt`: `qgisMinimumVersion=3.34`, `supportsQt6=True`
+- [x] Imports `PyQt5` → `qgis.PyQt`
+- [x] Enums Qt cortos → completos
+- [x] `exec_()` → `exec()` (no se usaba)
+- [x] `Qgis.Success` → `Qgis.MessageLevel.Success`
+- [x] `QgsCoordinateReferenceSystem(int, EpsgCrsId)` → `QgsCoordinateReferenceSystem.fromEpsgId()` o el objeto CRS
+- [x] Quitar `resources.py` (pyrcc5 no existe en Qt6) → rutas de fichero
+- [x] `metadata.txt`: `qgisMinimumVersion=3.34`, `supportsQt6=True`
+
+Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fase 1, v0.2.0).
+
+## Entorno de pruebas
+- Repo: `%USERPROFILE%\Documents\dev\ProjectBuilder` (rama `qgis4`)
+- Enlazado (`mklink /J`) como `project_builder` en `%APPDATA%\QGIS\QGIS3\...\plugins` y `QGIS4\...\plugins` (perfil `default`)
+- Recargar con Plugin Reloader o reiniciando QGIS
 
 ## Errores conocidos (fase 2)
 1. Reproyección vectorial con `+proj=noop`: no transforma coordenadas.

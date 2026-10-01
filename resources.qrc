@@ -1,5 +1,0 @@
-<RCC>
-    <qresource prefix="/plugins/carto_base" >
-        <file>icon.png</file>
-    </qresource>
-</RCC>
