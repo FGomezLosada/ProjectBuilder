@@ -70,24 +70,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.load_project_structure(folder,self.treeWidget) # pathFolder seleccionar la ruta
 
 
-    def selectTreeChilds(self, item, column, select = 0):
-        # Recorrer todos los elementos secundarios y seleccionarlos
-        if select == 0:
-            if item.isSelected():
-                select == 1 #False
-                selectBool = True
-            else:
-                select == 2
-                selectBool = False
-        else:
-            if select == 1:
-                selectBool = True
-            else:
-                selectBool = False
+    def selectTreeChilds(self, item, column):
+        # Al hacer doble clic en una carpeta, todos sus elementos (y los de sus subcarpetas) toman su mismo estado: seleccionados o no
+        seleccionar = item.isSelected()
         for i in range(item.childCount()):
             child_item = item.child(i)
-            child_item.setSelected(selectBool)
-            self.selectTreeChilds(child_item, column, select=selectBool) #AttributeError: 'QTreeWidget' object has no attribute 'selectTreeChilds'
+            child_item.setSelected(seleccionar)
+            self.selectTreeChilds(child_item, column) #Llamada recursiva: repite lo mismo dentro de cada subcarpeta
     
 
 
