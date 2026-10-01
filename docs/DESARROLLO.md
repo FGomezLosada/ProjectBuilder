@@ -44,16 +44,19 @@ Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fase 1, v0.2.0).
 - Enlazado (`mklink /J`) como `project_builder` en `%APPDATA%\QGIS\QGIS3\...\plugins` y `QGIS4\...\plugins` (perfil `default`)
 - Recargar con Plugin Reloader o reiniciando QGIS
 
-## Errores conocidos (fase 2)
+## Errores conocidos (fase 2 completada, v0.3.0)
 1. ~~Reproyección vectorial con `+proj=noop`: no transforma coordenadas.~~ ✅
 2. ~~Carpeta destino = origen (o dentro) → sobrescribe datos.~~ ✅
-3. GeoPackage multicapa: solo exporta la primera capa.
-4. `.ecw` listado pero no exportable; `ext in ('.tif')` es comparación de cadena.
-5. SRC no EPSG se pierde (`postgisSrid`).
-6. `selectTreeChilds`: `==` en lugar de `=`; selección de hijos errónea.
-7. Extensiones sensibles a mayúsculas; `.qml` sin comprobar ni copiar.
-8. `closingPlugin` se conecta en cada ejecución; `unload` no elimina el panel.
-9. Interfaz bloqueada durante la exportación; el proyecto no se abre al terminar.
+3. ~~GeoPackage multicapa: solo exporta la primera capa.~~ ✅
+4. ~~`.ecw` listado pero no exportable; `ext in ('.tif')` es comparación de cadena.~~ ✅
+5. ~~SRC no EPSG se pierde (`postgisSrid`).~~ ✅
+6. ~~`selectTreeChilds`: `==` en lugar de `=`; selección de hijos errónea.~~ ✅
+7. ~~Extensiones sensibles a mayúsculas; `.qml` sin comprobar ni copiar.~~ ✅
+8. ~~`closingPlugin` se conecta en cada ejecución; `unload` no elimina el panel.~~ ✅
+9. (→ fase 3) Interfaz bloqueada durante la exportación; el proyecto no se abre al terminar.
+
+## Datos de prueba
+`tests/data/` (ver `LEEME.txt`). Pruebas automáticas vía MCP de QGIS 3.40 (qgis_mcp_plugin, botón Start Server).
 
 ## Mejoras futuras (fase 4, del TFM)
 - Más formatos vectoriales y ráster
