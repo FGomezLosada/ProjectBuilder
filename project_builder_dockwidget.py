@@ -238,7 +238,6 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if ext in ('.shp', '.gpkg'):
                 processing.run("native:reprojectlayer", {'INPUT':path_source,
                                                             'TARGET_CRS':QgsCoordinateReferenceSystem(src),
-                                                            'OPERATION':'+proj=noop',
                                                             'OUTPUT':path_target})
             elif ext in ('.tif'):
                 processing.run("gdal:warpreproject", {'INPUT':path_source,

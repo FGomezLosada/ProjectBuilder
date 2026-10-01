@@ -1,0 +1,7 @@
+Datos sintéticos de prueba (zona de Nerja) para ProjectBuilder.
+- vectorial/zonas_4326.shp ........... polígonos EPSG:4326 (con tildes/ñ en atributos)
+- vectorial/subcarpeta/puntos_23030.shp puntos EPSG:23030 (ED50) en subcarpeta
+- vectorial/multicapa.gpkg ........... 2 capas: lineas_25830 y zonas_4326
+- raster/mdt_4326.tif ................ MDT EPSG:4326
+- raster/MAYUSCULAS_4326.TIF .......... igual, con extensión en mayúsculas
+Coordenada de control: punto id=1 de puntos_23030 = lon -3.875, lat 36.755
