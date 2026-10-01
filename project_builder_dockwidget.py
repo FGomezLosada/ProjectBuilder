@@ -99,13 +99,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         :return: 
         """
         lista_vectoriales = ('.shp','.gpkg')
-        lista_raster = ('.tif','.ecw')
-        lista_todos = ('.shp','.gpkg','.tif','.ecw')
+        lista_raster = ('.tif',) #.ecw se añadirá cuando se implemente su exportación
+        lista_todos = ('.shp','.gpkg','.tif')
         for element in os.listdir(startpath):
             path_info = startpath + "/" + element
             si_formato = 0
             for ext in lista_todos:
-                if element.endswith(ext):
+                if element.lower().endswith(ext):
                     si_formato = 1
             if si_formato == 1 or os.path.isdir(path_info):
                 parent_itm = QTreeWidgetItem(tree, [os.path.basename(element)])
@@ -116,13 +116,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             else: #Si no es un directorio...
                 definido = 0
                 for ext in lista_vectoriales:
-                    if element.endswith(ext): #Comprobar si es extensión vectorial y añade icono
+                    if element.lower().endswith(ext): #Comprobar si es extensión vectorial y añade icono
                         parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_vectorial.png')))
                         definido = 1
                         break
                 if definido == 0: #Si es 0 no es vectorial y ñade icono raster
                     for ext in lista_raster:
-                        if element.endswith(ext):
+                        if element.lower().endswith(ext):
                             parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_raster.png')))
                             definido = 1
                             break
@@ -181,17 +181,17 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 os.makedirs(os.path.dirname(path_target), exist_ok=True)
                 filename = os.path.basename(path_target)
                 name_layer = os.path.splitext(filename)[0]
-                ext_layer = os.path.splitext(filename)[1]
+                ext_layer = os.path.splitext(filename)[1].lower() #En minúsculas para reconocer también .SHP, .TIF...	
 
                 if ext_layer.endswith('.shp'):
                     type_layer = 'shp'
-                    qml_layer = path_source.replace('.shp','.qml')
+                    qml_layer = os.path.splitext(path_source)[0] + '.qml'
                 elif ext_layer.endswith('.gpkg'):
                     type_layer = 'shp'
                     qml_layer = None
                 else:
                     type_layer = 'raster'
-                    qml_layer = path_source.replace('.tif','.qml')
+                    qml_layer = os.path.splitext(path_source)[0] + '.qml'
 
                 #Función exportar y reproyectar capa. Requiere crs en estructura EPSG:25830
                 export_result = self.exportLayerToFolder(ext_layer, path_source, path_target, self.selectProjection.crs())
@@ -257,7 +257,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 processing.run("native:reprojectlayer", {'INPUT':path_source,
                                                             'TARGET_CRS':QgsCoordinateReferenceSystem(src),
                                                             'OUTPUT':path_target})
-            elif ext in ('.tif'):
+            elif ext == '.tif':
                 processing.run("gdal:warpreproject", {'INPUT':path_source,
                                                         'SOURCE_CRS':None,
                                                         'TARGET_CRS':QgsCoordinateReferenceSystem(src),
@@ -287,18 +287,18 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         Add vector/raster layers to project 
         """
 
-        if extension in ('.shp'):
+        if extension == '.shp':
             provider = 'ogr'
             layer = QgsVectorLayer(path_layer,name_layer,provider)
             layer.setProviderEncoding(u'UTF-8')
             self.addLayerToRoot(project, layer, qml_path)
-        elif extension in ('.gpkg'):
+        elif extension == '.gpkg':
             for sublayer in QgsProviderRegistry.instance().querySublayers(path_layer):
                 if sublayer.type() != Qgis.LayerType.Vector:
                     continue
                 sub_layer = QgsVectorLayer(sublayer.uri(), sublayer.name(), 'ogr')
                 self.addLayerToRoot(project, sub_layer, qml_path)
-        elif extension in ('.tif'):
+        elif extension == '.tif':
             layer = QgsRasterLayer(path_layer,name_layer)
             self.addLayerToRoot(project, layer, qml_path)
         else:
