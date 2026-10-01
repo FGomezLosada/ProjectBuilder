@@ -20,10 +20,11 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 - Nada de `import *`.
 - Lógica separada de la interfaz: `core/` no importa widgets.
 - Mensajes al usuario: barra de mensajes de QGIS; errores técnicos: `QgsMessageLog`.
+- Comentarios en español y abundantes: se conservan siempre (ayudan a entender el código). Solo se corrigen si quedan desactualizados.
 - Nombres: `snake_case` funciones/variables, `PascalCase` clases.
 
 ## Flujo de trabajo
-1. Un cambio pequeño cada vez → probar en QGIS (recargar plugin) → commit.
+1. Cambios con Buscar/Reemplazar (`Ctrl+H`) en VS Code. Un cambio pequeño cada vez → probar en QGIS (recargar plugin) → commit.
 2. Mensajes de commit convencionales: `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`.
 3. Fases: 0 limpieza · 1 migración QGIS 4 · 2 errores · 3 reestructuración · 4 mejoras.
 
@@ -44,8 +45,8 @@ Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fase 1, v0.2.0).
 - Recargar con Plugin Reloader o reiniciando QGIS
 
 ## Errores conocidos (fase 2)
-1. Reproyección vectorial con `+proj=noop`: no transforma coordenadas.
-2. Carpeta destino = origen (o dentro) → sobrescribe datos.
+1. ~~Reproyección vectorial con `+proj=noop`: no transforma coordenadas.~~ ✅
+2. ~~Carpeta destino = origen (o dentro) → sobrescribe datos.~~ ✅
 3. GeoPackage multicapa: solo exporta la primera capa.
 4. `.ecw` listado pero no exportable; `ext in ('.tif')` es comparación de cadena.
 5. SRC no EPSG se pierde (`postgisSrid`).

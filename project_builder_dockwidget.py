@@ -7,6 +7,7 @@ license   : GNU GPL v2 or later
 """
 
 import os
+import shutil
 
 import processing
 from qgis.core import (
@@ -297,8 +298,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def addLayerToRoot(self, project, layer, qml_path):
         #Add qml
-        if qml_path != None:
+        if qml_path is not None and os.path.isfile(qml_path): #Solo si existe un .qml con el mismo nombre que la capa de origen
             layer.loadNamedStyle(qml_path)
+            shutil.copy2(qml_path, os.path.splitext(layer.source())[0] + '.qml') #Copia el estilo junto a la capa en la carpeta del proyecto
 
         project.addMapLayer(layer,False) #Se añade al mapa pero no aparece en el árbol
         root = project.layerTreeRoot()
