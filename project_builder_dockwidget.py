@@ -1,5 +1,8 @@
 """
-ProjectBuilder - Panel (dock) con la interfaz y la lógica de creación del proyecto.
+ProjectBuilder - Panel (dock) con la interfaz del plugin.
+
+Aquí solo está la parte visual (botones, árbol, mensajes). La lógica de exportar capas
+y construir el proyecto está en la carpeta core/.
 
 copyright : (C) 2023 by Francisco Gómez Losada
 email     : pgomezlosada@gmail.com
@@ -7,28 +10,30 @@ license   : GNU GPL v2 or later
 """
 
 import os
-import shutil
 
-import processing
-from qgis.core import (
-    Qgis,
-    QgsCoordinateReferenceSystem,
-    QgsLayerTreeLayer,
-    QgsProject,
-    QgsProviderRegistry,
-    QgsRasterLayer,
-    QgsVectorLayer,
-)
+from qgis.core import Qgis
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox, QTreeWidgetItem
 
+from .core import project as qgis_project
+from .core.exporter import ExportError, export_layer
+from .core.formats import FOLDER, VECTOR
+from .core.scanner import scan_folder
 from .wms.wms import dict_wms
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'project_builder_dockwidget_base.ui'))
-pathplugin = os.path.dirname(__file__)
+PLUGIN_DIR = os.path.dirname(__file__)
+
+# Iconos del árbol según el tipo de elemento
+ICONS = {
+    FOLDER: os.path.join(PLUGIN_DIR, 'icon', 'folder.png'),
+    VECTOR: os.path.join(PLUGIN_DIR, 'icon', 'file_vectorial.png'),
+}
+RASTER_ICON = os.path.join(PLUGIN_DIR, 'icon', 'file_raster.png')
+PATH_ROLE = Qt.ItemDataRole.UserRole  #Donde se guarda la ruta en cada elemento del árbol
 
 
 class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
@@ -42,301 +47,128 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         self.iface = iface
 
-
         # Disparadores
-        self.selectFolder.clicked.connect(lambda: self.SELECT_FOLDER_AND_PROJECT(self.pathFolder))
-        self.selectFolderProject.clicked.connect(lambda: self.SELECT_FOLDER(self.pathFolderProject))
-        self.createProject.clicked.connect(lambda: self.CREATE_PROJECT())
-        self.treeWidget.itemActivated.connect(self.selectTreeChilds) #Función selección hijos en el árbol (con el doble click)
+        self.selectFolder.clicked.connect(self.select_layers_folder)
+        self.selectFolderProject.clicked.connect(self.select_project_folder)
+        self.createProject.clicked.connect(self.create_project)
+        self.treeWidget.itemActivated.connect(self.select_tree_children)  #Función selección hijos en el árbol (con el doble click)
         self.treeWidget.clear()
-        self.addWMStoCombo() #Llamar a funcion añade wms a combo al inicio
+        self.load_wms_combo()  #Llamar a funcion añade wms a combo al inicio
 
-
-    def closeEvent(self, event):
+    def closeEvent(self, event):  # noqa: N802 (nombre impuesto por Qt)
         self.closingPlugin.emit()
         event.accept()
-    
-    
-    def SELECT_FOLDER(self,qt_element):
-        folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.Option.DontResolveSymlinks)
-        qt_element.setText(folder)
- 
 
+    def warn(self, message):
+        """Muestra un aviso al usuario."""
+        QMessageBox.warning(self, "Error", message)
 
-    def SELECT_FOLDER_AND_PROJECT(self,qt_element):
+    # ------------------------------------------------------------------ Selección de carpetas
+
+    def select_project_folder(self):
         folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.Option.DontResolveSymlinks)
-        qt_element.setText(folder)
+        self.pathFolderProject.setText(folder)
+
+    def select_layers_folder(self):
+        folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.Option.DontResolveSymlinks)
+        self.pathFolder.setText(folder)
+        self.load_tree(folder)
+
+    # ------------------------------------------------------------------ Árbol de capas
+
+    def load_tree(self, folder):
+        """Rellena el árbol con las carpetas y capas admitidas de folder."""
         self.treeWidget.clear()
         if os.path.isdir(folder):
-            self.load_project_structure(folder,self.treeWidget) # pathFolder seleccionar la ruta
+            self._add_tree_items(self.treeWidget, scan_folder(folder))
 
+    def _add_tree_items(self, parent, entries):
+        for entry in entries:
+            item = QTreeWidgetItem(parent, [entry.name])
+            item.setData(0, PATH_ROLE, entry.path)  #Se le guarda la ruta al objeto internamente (se ve en el panel el nombre, pero no la ruta)
+            item.setIcon(0, QIcon(ICONS.get(entry.kind, RASTER_ICON)))
+            self._add_tree_items(item, entry.children)  #Recursivo: añade el contenido de las subcarpetas
 
-    def selectTreeChilds(self, item, column):
+    def select_tree_children(self, item, column):
         # Al hacer doble clic en una carpeta, todos sus elementos (y los de sus subcarpetas) toman su mismo estado: seleccionados o no
         seleccionar = item.isSelected()
         for i in range(item.childCount()):
             child_item = item.child(i)
             child_item.setSelected(seleccionar)
-            self.selectTreeChilds(child_item, column) #Llamada recursiva: repite lo mismo dentro de cada subcarpeta
-    
+            self.select_tree_children(child_item, column)  #Llamada recursiva: repite lo mismo dentro de cada subcarpeta
 
+    def selected_paths(self):
+        """Rutas de los elementos seleccionados en el árbol (sin repetir)."""
+        return list(dict.fromkeys(item.data(0, PATH_ROLE) for item in self.treeWidget.selectedItems()))
 
-    def load_project_structure(self, startpath, tree):
-        """
-        Load Project structure tree
-        :param startpath: 
-        :param tree: 
-        :return: 
-        """
-        lista_vectoriales = ('.shp','.gpkg')
-        lista_raster = ('.tif',) #.ecw se añadirá cuando se implemente su exportación
-        lista_todos = ('.shp','.gpkg','.tif')
-        for element in os.listdir(startpath):
-            path_info = startpath + "/" + element
-            si_formato = 0
-            for ext in lista_todos:
-                if element.lower().endswith(ext):
-                    si_formato = 1
-            if si_formato == 1 or os.path.isdir(path_info):
-                parent_itm = QTreeWidgetItem(tree, [os.path.basename(element)])
-                parent_itm.setData(0, Qt.ItemDataRole.UserRole, path_info) #Se le guarda la ruta al objeto internamente (se ve en el panel el nombre, pero no la ruta)
-            if os.path.isdir(path_info): #Se comprueba si es un directorio
-                self.load_project_structure(path_info, parent_itm)
-                parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','folder.png')))
-            else: #Si no es un directorio...
-                definido = 0
-                for ext in lista_vectoriales:
-                    if element.lower().endswith(ext): #Comprobar si es extensión vectorial y añade icono
-                        parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_vectorial.png')))
-                        definido = 1
-                        break
-                if definido == 0: #Si es 0 no es vectorial y ñade icono raster
-                    for ext in lista_raster:
-                        if element.lower().endswith(ext):
-                            parent_itm.setIcon(0, QIcon(os.path.join(pathplugin,'icon','file_raster.png')))
-                            definido = 1
-                            break
-    
+    # ------------------------------------------------------------------ Servicios WMS
 
-
-    def CREATE_PROJECT(self):
-        # Comprobar nombre proyecto
-        if self.nameProject.text() != '':
-            nameProject =  self.nameProject.text()
-            pass 
-        else: 
-            return QMessageBox.warning(self,"Error","No se ha introducido un nombre para el proyecto")
-        
-        # Comprobar directorio proyecto
-        if os.path.isdir(self.pathFolderProject.text()):
-            pathFolderProject = self.pathFolderProject.text()
-            pass 
-        else: 
-            return QMessageBox.warning(self,"Error","Carpeta de proyecto no válida")
-
-        # Comprobar directorio capas
-        if os.path.isdir(self.pathFolder.text()):
-            pathFolder = self.pathFolder.text()
-            pass 
-        else: 
-            return QMessageBox.warning(self,"Error","Acceso a capas no válido")
-
-        # Evitar sobrescribir los datos de origen: el proyecto no puede estar en la carpeta de capas ni dentro de ella
-        origen = os.path.normcase(os.path.abspath(pathFolder))
-        destino = os.path.normcase(os.path.abspath(pathFolderProject))
-        if destino == origen or destino.startswith(origen + os.sep):
-            return QMessageBox.warning(self,"Error","La carpeta del proyecto no puede ser la carpeta de capas ni estar dentro de ella")
-        
-        if self.addWMS.isChecked() and len(self.wmsComboBox.checkedItems()) == 0:
-            return QMessageBox.warning(self,"Error",f"No ha seleccionado ningún WMS")
-
-        # Comprobar que elementos del árbol estan seleccionados
-        selected_items = self.treeWidget.selectedItems()
-        paths_source = [] #Esta será la lista donde se añaden las rutas de los elementos seleccionados
-        for item in selected_items: #Comprueba los items seleccionados y añade la ruta a paths_source
-            # Haz algo con el elemento seleccionado
-            paths_source.append(item.data(0, Qt.ItemDataRole.UserRole)) #Recupera la ruta guardada internamente con Data de la línea 151
-
-        paths_target = [os.path.join(pathFolderProject, os.path.relpath(f, pathFolder)) for f in paths_source] #Reemplaza las rutas de origen de las capas por las nuevas rutas de destino (carpeta proyecto elegida)
-        
-        # Comprobar CRS seleccionado
-        selected_CRS = self.selectProjection.crs()
-        
-        project = self.createProjectQGIS(pathFolderProject, nameProject, selected_CRS)
-
-        for path_source, path_target in zip(paths_source, paths_target):# bucle con dos variables a la vez
-            if os.path.isdir(path_source): #Comprobar si es un directorio
-                os.makedirs(path_target, exist_ok=True) #Crear directorio si lo es y de forma recursiva (creando las carpetas y subcarpetas donde este el archivo)
-            else:
-                os.makedirs(os.path.dirname(path_target), exist_ok=True)
-                filename = os.path.basename(path_target)
-                name_layer = os.path.splitext(filename)[0]
-                ext_layer = os.path.splitext(filename)[1].lower() #En minúsculas para reconocer también .SHP, .TIF...	
-
-                if ext_layer.endswith('.shp'):
-                    type_layer = 'shp'
-                    qml_layer = os.path.splitext(path_source)[0] + '.qml'
-                elif ext_layer.endswith('.gpkg'):
-                    type_layer = 'shp'
-                    qml_layer = None
-                else:
-                    type_layer = 'raster'
-                    qml_layer = os.path.splitext(path_source)[0] + '.qml'
-
-                #Función exportar y reproyectar capa. Requiere crs en estructura EPSG:25830
-                export_result = self.exportLayerToFolder(ext_layer, path_source, path_target, self.selectProjection.crs())
-                if export_result == False:
-                    continue
-
-                self.addLayerToProject(project, path_target, ext_layer, name_layer, qml_layer)
-
-        
-        if self.addWMS.isChecked(): #Si el boton de wms esta activado.. comprobar wms, 
-            if len(self.wmsComboBox.checkedItems()) > 0:
-                self.createGroupLayer( project, 'WMS') # Crear el grupo si hay alguno seleccionado
-                for wms in self.wmsComboBox.checkedItems(): #Recorrer wms seleccionados y obtener name y url del diccionario
-                     self.addWmsToProject(project, wms, dict_wms[wms]['name'], dict_wms[wms]['url'])
-
-        self.saveProject(project)
-        
-        #Mensaje de que se ha creado el proyecto
-        success_message = f"Proyecto creado en la ruta: <a href='file:///{pathFolderProject}'>{pathFolderProject} </a> "
-        self.iface.messageBar().pushMessage("Success", success_message, level=Qgis.MessageLevel.Success, duration=10)
-        
-                
-
-    def createProjectQGIS(self, path, filename, crs):
-        """
-        Create project QGIS with path and filename
-        """
-        path_file = os.path.join(path, filename+'.qgs')
-        project = QgsProject()
-        project.setFileName(filename)
-        project.setCrs(crs)
-        self.saveProject(project, path_file)
-        return project
-
-
-    def saveProject(self, project, path_save=None):
-        """
-        Save project:  path_save automatic when None from current path
-        """
-        if path_save==None:
-            project.write(project.absoluteFilePath())
-        else:
-            project.write(path_save)
-        return project
-
-
-    #Función de exportación de capa con reproyección
-    def exportLayerToFolder(self, ext, path_source, path_target, src):
-        try:
-            if ext == '.gpkg':
-                # GeoPackage: se reproyecta cada capa interna por separado y luego se empaquetan todas en el GeoPackage de destino
-                capas = []
-                for sublayer in QgsProviderRegistry.instance().querySublayers(path_source):
-                    if sublayer.type() != Qgis.LayerType.Vector: #Solo capas vectoriales (se ignoran ráster o tablas internas)
-                        continue
-                    capa = processing.run("native:reprojectlayer", {'INPUT':sublayer.uri(),
-                                                                     'TARGET_CRS':QgsCoordinateReferenceSystem(src),
-                                                                     'OUTPUT':'TEMPORARY_OUTPUT'})['OUTPUT']
-                    capa.setName(sublayer.name()) #El nombre de la capa será el nombre de la tabla dentro del GeoPackage
-                    capas.append(capa)
-                processing.run("native:package", {'LAYERS':capas, 'OUTPUT':path_target, 'OVERWRITE':True, 'SAVE_STYLES':False})
-            elif ext == '.shp':
-                processing.run("native:reprojectlayer", {'INPUT':path_source,
-                                                            'TARGET_CRS':QgsCoordinateReferenceSystem(src),
-                                                            'OUTPUT':path_target})
-            elif ext == '.tif':
-                processing.run("gdal:warpreproject", {'INPUT':path_source,
-                                                        'SOURCE_CRS':None,
-                                                        'TARGET_CRS':QgsCoordinateReferenceSystem(src),
-                                                        'RESAMPLING':0,
-                                                        'NODATA':None,
-                                                        'TARGET_RESOLUTION':None,
-                                                        'OPTIONS':'',
-                                                        'DATA_TYPE':0,
-                                                        'TARGET_EXTENT':None,
-                                                        'TARGET_EXTENT_CRS':None,
-                                                        'MULTITHREADING':False,
-                                                        'EXTRA':'',
-                                                        'OUTPUT':path_target})
-            else:
-                QMessageBox.warning(self,"Error",f"El formato: {ext} no está disponible en la exportación")
-                return False
-        except Exception as e:
-            QMessageBox.warning(self,"Error",f"Excepción {e}")
-            return False
-        else:
-            return True
-            
-
-
-    def addLayerToProject(self, project, path_layer, extension, name_layer, qml_path=None):
-        """
-        Add vector/raster layers to project 
-        """
-
-        if extension == '.shp':
-            provider = 'ogr'
-            layer = QgsVectorLayer(path_layer,name_layer,provider)
-            layer.setProviderEncoding(u'UTF-8')
-            self.addLayerToRoot(project, layer, qml_path)
-        elif extension == '.gpkg':
-            for sublayer in QgsProviderRegistry.instance().querySublayers(path_layer):
-                if sublayer.type() != Qgis.LayerType.Vector:
-                    continue
-                sub_layer = QgsVectorLayer(sublayer.uri(), sublayer.name(), 'ogr')
-                self.addLayerToRoot(project, sub_layer, qml_path)
-        elif extension == '.tif':
-            layer = QgsRasterLayer(path_layer,name_layer)
-            self.addLayerToRoot(project, layer, qml_path)
-        else:
-            return QMessageBox.warning(self,"Error",f"Error en la capa: {name_layer}. No se reconoce el tipo")
-        
-
-
-    def addLayerToRoot(self, project, layer, qml_path):
-        #Add qml
-        if qml_path is not None and os.path.isfile(qml_path): #Solo si existe un .qml con el mismo nombre que la capa de origen
-            layer.loadNamedStyle(qml_path)
-            shutil.copy2(qml_path, os.path.splitext(layer.source())[0] + '.qml') #Copia el estilo junto a la capa en la carpeta del proyecto
-
-        project.addMapLayer(layer,False) #Se añade al mapa pero no aparece en el árbol
-        root = project.layerTreeRoot()
-        root.insertChildNode(0, QgsLayerTreeLayer(layer)) #Se añade al árbol de capas. el índice 0 indica la posición en el árbol de capas
-        root.findLayer(layer.id()).setExpanded(False) #La capa aparece sin expandir
-        root.findLayer(layer.id()).setItemVisibilityChecked(False) #La capa aparece no visible
-
-    
-    def createGroupLayer(self, project, group_name):
-        """Función que crea un grupo"""
-
-        root = project.layerTreeRoot()
-        group = root.addGroup(group_name)
-        group.setIsMutuallyExclusive(False) #True (permite activar una sola capa), False (permite activar varias capas a la vez)
-        group.setExpanded(False)
-        group.setItemVisibilityChecked(False)
-
-    
-    def addWMStoCombo(self):
+    def load_wms_combo(self):
         """Añadir nombres wms a combo"""
-        lista_wms = dict_wms.keys()
         self.wmsComboBox.clear()
-        self.wmsComboBox.addItems(lista_wms)
+        self.wmsComboBox.addItems(list(dict_wms.keys()))
 
+    # ------------------------------------------------------------------ Crear proyecto
 
-    def addWmsToProject(self, project, name_tree, name_layer, url):
-        """
-        Add wms layers
-        """
-        root = project.layerTreeRoot() #Se lee el arbol de capas
-        layer = QgsRasterLayer(url, name_layer, 'wms')
-        if not layer.isValid():
-            return QMessageBox.warning(self,"Error",f"El servicio {name_tree} no se ha podido cargar")
-        layer.setName(name_tree)
-        project.addMapLayer(layer,False)
-        rg = root.findGroup('WMS')
-        rg.insertChildNode(-1, QgsLayerTreeLayer(layer)) #Crear capa dentro de grupo (se le cambia el valor 0 por -1 para que el orden del combowms sea el mismo en el grupo de capas creado)
-        rg.findLayer(layer.id()).setExpanded(False)
-        rg.findLayer(layer.id()).setItemVisibilityChecked(False)
+    def validate(self):
+        """Comprueba los datos del formulario. Devuelve un mensaje de error o None si todo está bien."""
+        name = self.nameProject.text().strip()
+        folder_project = self.pathFolderProject.text()
+        folder_layers = self.pathFolder.text()
+        if not name:
+            return "No se ha introducido un nombre para el proyecto"
+        if not os.path.isdir(folder_project):
+            return "Carpeta de proyecto no válida"
+        if not os.path.isdir(folder_layers):
+            return "Acceso a capas no válido"
+        # Evitar sobrescribir los datos de origen: el proyecto no puede estar en la carpeta de capas ni dentro de ella
+        origen = os.path.normcase(os.path.abspath(folder_layers))
+        destino = os.path.normcase(os.path.abspath(folder_project))
+        if destino == origen or destino.startswith(origen + os.sep):
+            return "La carpeta del proyecto no puede ser la carpeta de capas ni estar dentro de ella"
+        if self.addWMS.isChecked() and not self.wmsComboBox.checkedItems():
+            return "No ha seleccionado ningún WMS"
+        return None
+
+    def create_project(self):
+        error = self.validate()
+        if error:
+            return self.warn(error)
+
+        name = self.nameProject.text().strip()
+        folder_project = self.pathFolderProject.text()
+        folder_layers = self.pathFolder.text()
+        crs = self.selectProjection.crs()
+        project = qgis_project.create_project(folder_project, name, crs)
+        errors = []  #Se acumulan los errores para mostrarlos todos juntos al final
+
+        for path_source in self.selected_paths():
+            # Misma estructura de subcarpetas que el origen, dentro de la carpeta del proyecto
+            path_target = os.path.join(folder_project, os.path.relpath(path_source, folder_layers))
+            if os.path.isdir(path_source):  #Comprobar si es un directorio
+                os.makedirs(path_target, exist_ok=True)  #Crear directorio de forma recursiva
+                continue
+            try:
+                export_layer(path_source, path_target, crs)  #Exportar y reproyectar capa
+                qgis_project.add_layer(project, path_target)
+            except (ExportError, ValueError) as e:
+                errors.append(str(e))
+
+        if self.addWMS.isChecked():  #Si el boton de wms esta activado, se crea el grupo y se añaden los seleccionados
+            group = qgis_project.add_group(project, 'WMS')
+            for wms in self.wmsComboBox.checkedItems():  #Recorrer wms seleccionados y obtener name y url del diccionario
+                try:
+                    qgis_project.add_wms(project, group, wms, dict_wms[wms]['url'])
+                except ValueError as e:
+                    errors.append(str(e))
+
+        try:
+            path_file = qgis_project.save_project(project)
+        except OSError as e:
+            return self.warn(str(e))
+
+        if errors:
+            self.warn("El proyecto se ha creado, pero con estos problemas:\n\n- " + "\n- ".join(errors))
+        #Mensaje de que se ha creado el proyecto
+        success_message = f"Proyecto creado: <a href='file:///{folder_project}'>{path_file}</a>"
+        self.iface.messageBar().pushMessage("ProjectBuilder", success_message, level=Qgis.MessageLevel.Success, duration=10)
