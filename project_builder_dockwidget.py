@@ -11,14 +11,14 @@ license   : GNU GPL v2 or later
 
 import os
 
-from qgis.core import Qgis
+from qgis.core import Qgis, QgsApplication
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox, QTreeWidgetItem
+from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox, QPushButton, QTreeWidgetItem
 
 from .core import project as qgis_project
-from .core.exporter import ExportError, export_layer
+from .core.task import ExportTask
 from .core.formats import FOLDER, VECTOR
 from .core.scanner import scan_folder
 from .wms.wms import dict_wms
@@ -46,11 +46,12 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setupUi(self)
 
         self.iface = iface
+        self.task = None  #Tarea de exportación en curso (se guarda para que Python no la elimine antes de tiempo)
 
         # Disparadores
         self.selectFolder.clicked.connect(self.select_layers_folder)
         self.selectFolderProject.clicked.connect(self.select_project_folder)
-        self.createProject.clicked.connect(self.create_project)
+        self.createProject.clicked.connect(lambda: self.create_project())  #lambda: la señal clicked envía un True/False que no queremos recibir
         self.treeWidget.itemActivated.connect(self.select_tree_children)  #Función selección hijos en el árbol (con el doble click)
         self.treeWidget.clear()
         self.load_wms_combo()  #Llamar a funcion añade wms a combo al inicio
@@ -130,28 +131,51 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return "No ha seleccionado ningún WMS"
         return None
 
-    def create_project(self):
+    def create_project(self, background=True):
+        """
+        Lanza la creación del proyecto. Las capas se exportan en segundo plano (QgsTask)
+        y, al terminar, se construye y guarda el proyecto en finish_project().
+        background=False ejecuta todo seguido (lo usa tests/smoke_test.py).
+        """
         error = self.validate()
         if error:
             return self.warn(error)
 
-        name = self.nameProject.text().strip()
         folder_project = self.pathFolderProject.text()
         folder_layers = self.pathFolder.text()
-        crs = self.selectProjection.crs()
-        project = qgis_project.create_project(folder_project, name, crs)
-        errors = []  #Se acumulan los errores para mostrarlos todos juntos al final
-
+        jobs = []  #Pares (origen, destino) de las capas a exportar
         for path_source in self.selected_paths():
             # Misma estructura de subcarpetas que el origen, dentro de la carpeta del proyecto
             path_target = os.path.join(folder_project, os.path.relpath(path_source, folder_layers))
             if os.path.isdir(path_source):  #Comprobar si es un directorio
                 os.makedirs(path_target, exist_ok=True)  #Crear directorio de forma recursiva
-                continue
+            else:
+                jobs.append((path_source, path_target))
+
+        self.task = ExportTask(jobs, self.selectProjection.crs())
+        if background:
+            self.createProject.setEnabled(False)  #Evita lanzar dos veces la creación mientras se exporta
+            self.task.taskCompleted.connect(lambda: self.finish_project(True))
+            self.task.taskTerminated.connect(lambda: self.finish_project(False))
+            QgsApplication.taskManager().addTask(self.task)  #QGIS muestra el progreso abajo a la derecha
+        else:
+            self.finish_project(self.task.run())
+
+    def finish_project(self, completed):
+        """Se ejecuta al terminar la exportación: crea el proyecto con las capas exportadas, añade los WMS y lo guarda."""
+        self.createProject.setEnabled(True)
+        task, self.task = self.task, None
+        if not completed:
+            return self.iface.messageBar().pushMessage("ProjectBuilder", "Creación del proyecto cancelada",
+                                                       level=Qgis.MessageLevel.Warning, duration=5)
+
+        project = qgis_project.create_project(self.pathFolderProject.text(), self.nameProject.text().strip(),
+                                              self.selectProjection.crs())
+        errors = list(task.errors)  #Se acumulan los errores para mostrarlos todos juntos al final
+        for path_target in task.exported:
             try:
-                export_layer(path_source, path_target, crs)  #Exportar y reproyectar capa
                 qgis_project.add_layer(project, path_target)
-            except (ExportError, ValueError) as e:
+            except ValueError as e:
                 errors.append(str(e))
 
         if self.addWMS.isChecked():  #Si el boton de wms esta activado, se crea el grupo y se añaden los seleccionados
@@ -169,6 +193,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         if errors:
             self.warn("El proyecto se ha creado, pero con estos problemas:\n\n- " + "\n- ".join(errors))
-        #Mensaje de que se ha creado el proyecto
-        success_message = f"Proyecto creado: <a href='file:///{folder_project}'>{path_file}</a>"
-        self.iface.messageBar().pushMessage("ProjectBuilder", success_message, level=Qgis.MessageLevel.Success, duration=10)
+        self.show_success(path_file)
+
+    def show_success(self, path_file):
+        """Mensaje de que se ha creado el proyecto, con un botón para abrirlo en QGIS."""
+        bar = self.iface.messageBar()
+        message = bar.createMessage("ProjectBuilder", f"Proyecto creado: {path_file}")
+        button = QPushButton("Abrir proyecto")
+        button.clicked.connect(lambda: self.iface.addProject(path_file))  #QGIS pregunta antes si hay que guardar el proyecto actual
+        message.layout().addWidget(button)
+        bar.pushWidget(message, Qgis.MessageLevel.Success, 15)

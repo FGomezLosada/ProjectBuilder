@@ -38,7 +38,7 @@ while it.value():
 dw.pathFolderProject.setText(tmp)
 dw.nameProject.setText("prueba")
 dw.selectProjection.setCrs(QgsCoordinateReferenceSystem("EPSG:25830"))
-dw.create_project()
+dw.create_project(background=False)  # sin segundo plano para poder comprobar el resultado al momento
 dw.deleteLater()
 
 p = QgsProject()
