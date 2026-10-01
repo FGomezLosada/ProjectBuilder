@@ -150,6 +150,12 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             pass 
         else: 
             return QMessageBox.warning(self,"Error","Acceso a capas no válido")
+
+        # Evitar sobrescribir los datos de origen: el proyecto no puede estar en la carpeta de capas ni dentro de ella
+        origen = os.path.normcase(os.path.abspath(pathFolder))
+        destino = os.path.normcase(os.path.abspath(pathFolderProject))
+        if destino == origen or destino.startswith(origen + os.sep):
+            return QMessageBox.warning(self,"Error","La carpeta del proyecto no puede ser la carpeta de capas ni estar dentro de ella")
         
         if self.addWMS.isChecked() and len(self.wmsComboBox.checkedItems()) == 0:
             return QMessageBox.warning(self,"Error",f"No ha seleccionado ningún WMS")
@@ -161,7 +167,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             # Haz algo con el elemento seleccionado
             paths_source.append(item.data(0, Qt.ItemDataRole.UserRole)) #Recupera la ruta guardada internamente con Data de la línea 151
 
-        paths_target = [f.replace(pathFolder,pathFolderProject) for f in paths_source] #Reemplaza las rutas de origen de las capas por las nuevas rutas de destino (carpeta proyecto elegida)
+        paths_target = [os.path.join(pathFolderProject, os.path.relpath(f, pathFolder)) for f in paths_source] #Reemplaza las rutas de origen de las capas por las nuevas rutas de destino (carpeta proyecto elegida)
         
         # Comprobar CRS seleccionado
         selected_CRS = self.selectProjection.crs()
