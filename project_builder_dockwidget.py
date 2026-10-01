@@ -241,7 +241,19 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     #Función de exportación de capa con reproyección
     def exportLayerToFolder(self, ext, path_source, path_target, src):
         try:
-            if ext in ('.shp', '.gpkg'):
+            if ext == '.gpkg':
+                # GeoPackage: se reproyecta cada capa interna por separado y luego se empaquetan todas en el GeoPackage de destino
+                capas = []
+                for sublayer in QgsProviderRegistry.instance().querySublayers(path_source):
+                    if sublayer.type() != Qgis.LayerType.Vector: #Solo capas vectoriales (se ignoran ráster o tablas internas)
+                        continue
+                    capa = processing.run("native:reprojectlayer", {'INPUT':sublayer.uri(),
+                                                                     'TARGET_CRS':QgsCoordinateReferenceSystem(src),
+                                                                     'OUTPUT':'TEMPORARY_OUTPUT'})['OUTPUT']
+                    capa.setName(sublayer.name()) #El nombre de la capa será el nombre de la tabla dentro del GeoPackage
+                    capas.append(capa)
+                processing.run("native:package", {'LAYERS':capas, 'OUTPUT':path_target, 'OVERWRITE':True, 'SAVE_STYLES':False})
+            elif ext == '.shp':
                 processing.run("native:reprojectlayer", {'INPUT':path_source,
                                                             'TARGET_CRS':QgsCoordinateReferenceSystem(src),
                                                             'OUTPUT':path_target})
