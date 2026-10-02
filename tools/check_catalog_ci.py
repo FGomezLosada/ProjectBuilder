@@ -8,6 +8,7 @@ import concurrent.futures
 import os
 import ssl
 import sys
+import time
 import urllib.request
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,6 +35,8 @@ RECORDATORIO = [
     "- **FALLO** → puede ser una caída temporal. Si ya falló el mes pasado (mira los comentarios anteriores de esta",
     "  incidencia), busca la nueva dirección en la web del organismo o en https://www.idee.es/ y cámbiala;",
     "  si el servicio ha desaparecido, borra su bloque `{ ... }` completo (cuidado con las comas).",
+    "- **FALLO: HTTP Error 52x** (520-527) → el servidor está detrás de Cloudflare y no respondió a GitHub, que",
+    "  revisa desde EE. UU. Ábrelo antes en QGIS desde tu PC: si funciona, no hagas nada (no es un fallo real).",
     "",
     "**Después, siempre:**",
     "1. Cambia `\"version\"` (arriba del todo) por la fecha de hoy, p. ej. `\"2026-11-01\"`. Sin este cambio el plugin",
@@ -61,7 +64,16 @@ def descargar(url, _authcfg=''):
         return respuesta.read(8_000_000)
 
 
-def comprobar(servicio):
+def comprobar(servicio, intentos=3, pausa=20):
+    """Repite la comprobación si falla: algunos servidores tienen caídas de segundos."""
+    for intento in range(intentos):
+        resultado = _comprobar(servicio)
+        if not resultado.startswith('FALLO') or intento == intentos - 1:
+            return resultado
+        time.sleep(pausa)
+
+
+def _comprobar(servicio):
     detalle = ''
     for url in svc.url_variants(servicio.url):
         try:
