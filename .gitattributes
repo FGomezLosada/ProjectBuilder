@@ -1,2 +1,16 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Finales de línea: LF en todos los ficheros de texto (igual en Windows, Linux y GitHub).
+# Evita los avisos "LF will be replaced by CRLF" y que un fichero salga entero como modificado.
+* text=auto eol=lf
+
+# Ficheros binarios: no se tocan
+*.png binary
+*.jpg binary
+*.tif binary
+*.TIF binary
+*.gpkg binary
+*.shp binary
+*.shx binary
+*.dbf binary
+*.qgz binary
+*.docx binary
+*.pdf binary
