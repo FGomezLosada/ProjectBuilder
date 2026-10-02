@@ -16,6 +16,42 @@ from core import services as svc  # noqa: E402
 from core.capabilities import detect_type, parse_capabilities  # noqa: E402
 
 ESPERA = 45
+
+# Recordatorio que llega en el email: qué hacer, dónde y cómo.
+RECORDATORIO = [
+    "",
+    "---",
+    "## Recordatorio: cómo arreglarlo",
+    "",
+    "**Dónde:** archivo `services.json` en la raíz del repositorio",
+    "(en tu PC: `C:\\Users\\Usuario\\Documents\\dev\\ProjectBuilder\\services.json`, ábrelo con VS Code).",
+    "",
+    "**Qué hacer según el resultado:**",
+    "- **CAMBIAR URL a ...** → el servicio funciona con la dirección nueva: busca el servicio por su nombre (Ctrl+F)",
+    "  y cambia su `\"url\"` por la indicada.",
+    "- **ya no existe la capa ...** → abre el servicio en QGIS (Capa → Añadir capa WMS/WMTS o WFS), mira el nombre",
+    "  actual de la capa y cámbialo en `\"layer\"`.",
+    "- **FALLO** → puede ser una caída temporal. Si ya falló el mes pasado (mira los comentarios anteriores de esta",
+    "  incidencia), busca la nueva dirección en la web del organismo o en https://www.idee.es/ y cámbiala;",
+    "  si el servicio ha desaparecido, borra su bloque `{ ... }` completo (cuidado con las comas).",
+    "",
+    "**Después, siempre:**",
+    "1. Cambia `\"version\"` (arriba del todo) por la fecha de hoy, p. ej. `\"2026-11-01\"`. Sin este cambio el plugin",
+    "   no descarga el catálogo nuevo.",
+    "2. Prueba en la consola de Python de QGIS:",
+    "   `exec(open(r\"C:\\Users\\Usuario\\Documents\\dev\\ProjectBuilder\\tests\\check_catalog.py\", encoding=\"utf-8\").read())`",
+    "3. En CMD, desde la carpeta del proyecto:",
+    "   ```",
+    "   git switch main",
+    "   git add services.json",
+    "   git commit -m \"fix: actualiza servicios del catálogo\"",
+    "   git push",
+    "   ```",
+    "4. Cierra esta incidencia en GitHub (botón **Close issue**). Los usuarios del plugin reciben el catálogo",
+    "   corregido solos en un máximo de 7 días, sin actualizar el plugin.",
+    "",
+    "Para repetir la revisión cuando quieras: pestaña **Actions** → **Revisar catálogo de servicios** → **Run workflow**.",
+]
 _ctx = ssl.create_default_context()
 
 
@@ -51,7 +87,7 @@ def main():
     if problemas:
         lineas += ["| Grupo | Servicio | Resultado | URL |", "|---|---|---|---|"]
         lineas += [f"| {g} | {s.name} | {r} | {s.url} |" for g, s, r in problemas]
-        lineas += ["", "Los servicios con **CAMBIAR URL** funcionan con la dirección indicada: basta con actualizarla en `services.json`."]
+        lineas += RECORDATORIO
     with open(os.path.join(RAIZ, 'informe_catalogo.md'), 'w', encoding='utf-8') as f:
         f.write("\n".join(lineas) + "\n")
     print("\n".join(lineas))
