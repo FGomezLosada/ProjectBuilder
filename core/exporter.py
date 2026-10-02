@@ -4,7 +4,7 @@ import os
 import shutil
 
 import processing
-from qgis.core import QgsProcessingUtils
+from qgis.core import QgsProcessingUtils, QgsVectorLayer
 
 from .formats import GEOTIFF_OPTIONS, RASTER_EXTENSIONS, extension, style_path, vector_sublayers
 
@@ -13,9 +13,18 @@ class ExportError(Exception):
     """Error al exportar una capa (el mensaje se muestra al usuario)."""
 
 
+def _crs_for(uri, crs):
+    """
+    SRC de salida de una capa vectorial: el indicado o, si crs es None (no reproyectar), el suyo propio.
+    Reproyectar al mismo SRC que ya tiene la capa equivale a copiarla tal cual.
+    """
+    return crs if crs is not None else QgsVectorLayer(uri, 'origen', 'ogr').crs()
+
+
 def export_layer(path_source, path_target, crs, feedback=None, layers=None):
     """
-    Copia la capa path_source en su propio fichero path_target, reproyectada al SRC crs.
+    Copia la capa path_source en su propio fichero path_target, reproyectada al SRC crs
+    (crs=None: se copia en su SRC original, sin reproyectar).
     El formato de salida lo marca la extensión de path_target (ver formats.output_path).
     En ficheros con varias capas, layers es la lista de nombres a exportar (None = todas).
     Si existe un .qml junto a la capa de origen, se copia junto a la capa exportada.
@@ -29,7 +38,7 @@ def export_layer(path_source, path_target, crs, feedback=None, layers=None):
         elif extension(path_target) == '.gpkg':
             _export_to_geopackage(path_source, path_target, crs, feedback, layers)
         else:  #Se conserva el formato vectorial original: la extensión de salida indica el formato
-            processing.run("native:reprojectlayer", {'INPUT': path_source, 'TARGET_CRS': crs,
+            processing.run("native:reprojectlayer", {'INPUT': path_source, 'TARGET_CRS': _crs_for(path_source, crs),
                                                      'OUTPUT': path_target}, feedback=feedback)
     except Exception as e:
         raise ExportError(f"No se pudo exportar {os.path.basename(path_source)}: {e}") from e
@@ -53,7 +62,7 @@ def export_to_shared_geopackage(path_source, gpkg, tables, crs, feedback=None):
             if sublayer.name() not in tables:  #Solo las capas marcadas en el árbol
                 continue
             destino = f"ogr:dbname='{gpkg}' table=\"{tables[sublayer.name()]}\" (geom)"  #Tabla dentro del GeoPackage
-            processing.run("native:reprojectlayer", {'INPUT': sublayer.uri(), 'TARGET_CRS': crs,
+            processing.run("native:reprojectlayer", {'INPUT': sublayer.uri(), 'TARGET_CRS': _crs_for(sublayer.uri(), crs),
                                                      'OUTPUT': destino}, feedback=feedback)
     except Exception as e:
         raise ExportError(f"No se pudo exportar {os.path.basename(path_source)}: {e}") from e
@@ -68,7 +77,7 @@ def _export_to_geopackage(path_source, path_target, crs, feedback, layers):
     for sublayer in vector_sublayers(path_source):
         if layers is not None and sublayer.name() not in layers:  #Solo las capas marcadas en el árbol
             continue
-        capa = processing.run("native:reprojectlayer", {'INPUT': sublayer.uri(), 'TARGET_CRS': crs,
+        capa = processing.run("native:reprojectlayer", {'INPUT': sublayer.uri(), 'TARGET_CRS': _crs_for(sublayer.uri(), crs),
                                                          'OUTPUT': 'TEMPORARY_OUTPUT'}, feedback=feedback)['OUTPUT']
         capa.setName(sublayer.name())  #El nombre de la capa será el nombre de la tabla dentro del GeoPackage
         capas.append(capa)
@@ -98,6 +107,10 @@ def _export_raster(path_source, path_target, crs, feedback):
 
 
 def _warp(path_source, path_target, crs, feedback):
+    """Reproyecta un ráster con gdalwarp; si crs es None (no reproyectar) lo copia con gdal_translate."""
     extra = GEOTIFF_OPTIONS if extension(path_target) in ('.tif', '.tiff') else ''
+    if crs is None:
+        processing.run("gdal:translate", {'INPUT': path_source, 'EXTRA': extra, 'OUTPUT': path_target}, feedback=feedback)
+        return
     processing.run("gdal:warpreproject", {'INPUT': path_source, 'TARGET_CRS': crs, 'RESAMPLING': 0,
                                           'EXTRA': extra, 'OUTPUT': path_target}, feedback=feedback)

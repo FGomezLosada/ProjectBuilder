@@ -13,11 +13,14 @@ estructura de subcarpetas y sus estilos `.qml`.
 - Exportación en segundo plano, con progreso y cancelación
 
 ## Uso
+![Panel de ProjectBuilder](docs/captura_panel.png)
+
 1. **Capas**: pulsa *Añadir carpeta…* (tantas veces como orígenes necesites) y marca las capas o carpetas (☑) que quieras incluir. Usa la caja de búsqueda para filtrar; los GeoPackage se despliegan para elegir capas sueltas.
    *Quitar carpeta* elimina del árbol la carpeta en la que hayas hecho clic. Elige el **formato de salida**.
-2. **WMS** (opcional): marca *Añadir WMS* y elige los servicios.
-3. **Proyecto**: nombre, SRC y carpeta de destino (no puede ser ninguna de las de origen ni estar dentro de ellas).
-4. Pulsa **Crear proyecto**. Al terminar, el mensaje verde permite abrirlo directamente.
+2. **Servicios web** (opcional): marca la casilla de la sección *2 · Servicios web (WMS)* y elige los servicios.
+3. **Proyecto**: nombre, carpeta de destino (se crea si no existe; no puede ser ninguna de las de origen ni estar dentro de ellas) y SRC.
+   Por defecto **todas las capas se reproyectan a ese SRC**; si desmarcas la casilla, cada capa conserva su SRC original y QGIS las reproyecta al vuelo.
+4. Revisa el resumen bajo el formulario (capas, WMS, formato y ruta del `.qgz`) y pulsa **Crear proyecto**. Al terminar, el mensaje verde permite abrirlo directamente. **Limpiar** vacía el formulario para preparar otro proyecto.
 
 Las capas se añaden ocultas para que el proyecto abra rápido.
 

@@ -12,23 +12,10 @@ license   : GNU GPL v2 or later
 import os
 import unicodedata
 
-from qgis.core import Qgis, QgsApplication
-from qgis.gui import QgsFilterLineEdit
+from qgis.core import Qgis, QgsApplication, QgsCoordinateReferenceSystem, QgsProject
 from qgis.PyQt import QtWidgets, uic
-from qgis.PyQt.QtCore import QSettings, Qt
-from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QComboBox,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+from qgis.PyQt.QtCore import QSettings, Qt, QTimer
+from qgis.PyQt.QtWidgets import QAbstractItemView, QFileDialog, QMessageBox, QPushButton, QTreeWidgetItem
 
 from .core import project as qgis_project
 from .core.formats import (
@@ -44,7 +31,7 @@ from .core.formats import (
     style_path,
     vector_sublayers,
 )
-from .core.scanner import scan_folder
+from .core.scanner import LINE, POINT, POLYGON, TABLE, scan_folder
 from .core.services import ServicesError, load_services
 from .core.task import ExportTask, Job
 
@@ -52,13 +39,17 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'project_builder_dockwidget_base.ui'))
 PLUGIN_DIR = os.path.dirname(__file__)
 
-# Iconos del árbol según el tipo de elemento
+# Iconos nativos de QGIS (se adaptan al tema claro/oscuro): según el tipo de elemento y, en vectoriales, la geometría
 ICONS = {
-    FOLDER: os.path.join(PLUGIN_DIR, 'icon', 'folder.png'),
-    VECTOR: os.path.join(PLUGIN_DIR, 'icon', 'file_vectorial.png'),
-    MULTILAYER: os.path.join(PLUGIN_DIR, 'icon', 'file_vectorial.png'),
+    FOLDER: '/mIconFolder.svg',
+    MULTILAYER: '/mGeoPackage.svg',
+    RASTER: '/mIconRasterLayer.svg',
+    POINT: '/mIconPointLayer.svg',
+    LINE: '/mIconLineLayer.svg',
+    POLYGON: '/mIconPolygonLayer.svg',
+    TABLE: '/mIconVector.svg',  #Geometría desconocida o sin geometría: icono genérico de capa vectorial
 }
-RASTER_ICON = os.path.join(PLUGIN_DIR, 'icon', 'file_raster.png')
+MODE_NAMES = {SINGLE: "un solo GeoPackage", CONVERT: "un GeoPackage por capa", KEEP: "formato original"}
 PATH_ROLE = Qt.ItemDataRole.UserRole  #Donde se guarda la ruta en cada elemento del árbol
 KIND_ROLE = Qt.ItemDataRole.UserRole + 1  #Tipo de elemento (carpeta, vectorial, multicapa, ráster)
 LAYER_ROLE = Qt.ItemDataRole.UserRole + 2  #Nombre de la capa interna (solo en las capas de un fichero multicapa)
@@ -96,69 +87,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.iface = iface
         self.task = None  #Tarea de exportación en curso (se guarda para que Python no la elimine antes de tiempo)
 
-        self.add_source_buttons()
-        self.add_filter_box()
-        self.add_output_format()
-        self.add_bottom_buttons()
-
-        # Disparadores
-        self.selectFolderProject.clicked.connect(self.select_project_folder)
-        self.createProject.clicked.connect(lambda: self.create_project())  #lambda: la señal clicked envía un True/False que no queremos recibir
-        self.treeWidget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)  #Las capas se eligen con las casillas, no seleccionando filas
-        self.treeWidget.clear()
-        self.load_wms_combo()  #Llamar a funcion añade wms a combo al inicio
-
-    def warn(self, message):
-        """Muestra un aviso al usuario."""
-        QMessageBox.warning(self, "Error", message)
-
-    # ------------------------------------------------------------------ Elementos de la interfaz creados por código
-
-    def add_source_buttons(self):
-        """
-        Botones "Añadir carpeta…" y "Quitar carpeta" en lugar de la línea de ruta y el botón "...":
-        ahora se pueden añadir varias carpetas de capas, cada una aparece como una raíz del árbol.
-        """
-        layout = self.selectFolder.parentWidget().layout()
-        self.pathFolder.setVisible(False)
-        self.selectFolder.setVisible(False)
-        self.label_2.setText("Carpetas de capas")
-        barra = QWidget()
-        hbox = QHBoxLayout(barra)
-        hbox.setContentsMargins(0, 0, 0, 0)
-        self.addFolderButton = QPushButton(QgsApplication.getThemeIcon('/symbologyAdd.svg'), "Añadir carpeta…")
-        self.removeFolderButton = QPushButton(QgsApplication.getThemeIcon('/symbologyRemove.svg'), "Quitar carpeta")
-        self.removeFolderButton.setToolTip("Haz clic en una carpeta del árbol (o en cualquier capa suya) y pulsa aquí")
-        self.addFolderButton.clicked.connect(self.select_layers_folder)
-        self.removeFolderButton.clicked.connect(self.remove_current_folder)
-        hbox.addWidget(self.addFolderButton)
-        hbox.addWidget(self.removeFolderButton)
-        hbox.addStretch()
-        layout.addWidget(barra, 1, 0, 1, 2)
-
-    def add_filter_box(self):
-        """
-        Coloca una caja de búsqueda justo encima del árbol de capas.
-        Se crea por código para no tener que editar el .ui: se sustituye el árbol por un bloque (búsqueda + árbol).
-        """
-        layout = self.treeWidget.parentWidget().layout()
-        row, column, row_span, column_span = layout.getItemPosition(layout.indexOf(self.treeWidget))
-        layout.removeWidget(self.treeWidget)
-        bloque = QWidget()
-        vbox = QVBoxLayout(bloque)
-        vbox.setContentsMargins(0, 0, 0, 0)
-        self.filterBox = QgsFilterLineEdit()
+        # Iconos de los botones (nativos de QGIS)
+        self.addFolderButton.setIcon(QgsApplication.getThemeIcon('/symbologyAdd.svg'))
+        self.removeFolderButton.setIcon(QgsApplication.getThemeIcon('/symbologyRemove.svg'))
+        self.resetButton.setIcon(QgsApplication.getThemeIcon('/mActionFileNew.svg'))
         self.filterBox.setShowSearchIcon(True)
-        self.filterBox.setPlaceholderText("Buscar capas o carpetas…")
-        self.filterBox.textChanged.connect(self.apply_filter)  #Se filtra mientras se escribe
-        vbox.addWidget(self.filterBox)
-        vbox.addWidget(self.treeWidget)
-        layout.addWidget(bloque, row, column, row_span, column_span)
 
-    def add_output_format(self):
-        """Selector del formato de salida, justo debajo del árbol de capas (filas 5 y 6 del formulario, libres en el .ui)."""
-        layout = self.createProject.parentWidget().layout()
-        self.outputFormat = QComboBox()
+        # Formatos de salida
         self.outputFormat.addItem("Un solo GeoPackage + GeoTIFF (recomendado)", SINGLE)
         self.outputFormat.addItem("Un GeoPackage por capa + GeoTIFF", CONVERT)
         self.outputFormat.addItem("Conservar el formato original", KEEP)
@@ -168,23 +103,48 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             "Un GeoPackage por capa: cada vectorial en su .gpkg, conservando la estructura de carpetas.\n"
             "Conservar: cada capa mantiene su formato; si GDAL no puede escribirlo (ECW, MrSID, DXF, GPX...)\n"
             "  se convierte igualmente. Los ficheros con varias capas siempre salen en GeoPackage.")
-        layout.addWidget(QLabel("Formato de salida de las capas"), 5, 0)
-        layout.addWidget(self.outputFormat, 6, 0)
 
-    def add_bottom_buttons(self):
-        """Botones "Limpiar" y "Crear proyecto" en la misma fila (el botón Crear viene del .ui; se recoloca)."""
-        layout = self.createProject.parentWidget().layout()
-        row, column, _, _ = layout.getItemPosition(layout.indexOf(self.createProject))
-        layout.removeWidget(self.createProject)
-        barra = QWidget()
-        hbox = QHBoxLayout(barra)
-        hbox.setContentsMargins(0, 0, 0, 0)
-        self.resetButton = QPushButton(QgsApplication.getThemeIcon('/mActionNewMap.svg'), "Limpiar")
-        self.resetButton.setToolTip("Deja el formulario vacío para preparar otro proyecto (no borra ningún fichero)")
+        # Disparadores
+        self.addFolderButton.clicked.connect(self.select_layers_folder)
+        self.removeFolderButton.clicked.connect(self.remove_current_folder)
+        self.filterBox.textChanged.connect(self.apply_filter)  #Se filtra mientras se escribe
+        self.selectFolderProject.clicked.connect(self.select_project_folder)
         self.resetButton.clicked.connect(self.reset_form)
-        hbox.addWidget(self.resetButton)
-        hbox.addWidget(self.createProject, 1)  #El botón Crear ocupa el resto del ancho
-        layout.addWidget(barra, row, column, 1, 2)
+        self.createProject.clicked.connect(lambda: self.create_project())  #lambda: la señal clicked envía un True/False que no queremos recibir
+        self.treeWidget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)  #Las capas se eligen con las casillas, no seleccionando filas
+        self.treeWidget.clear()
+        self.load_wms_combo()  #Llamar a funcion añade wms a combo al inicio
+        self.load_last_crs()
+        self.selectProjection.crsChanged.connect(self.remember_crs)
+
+        # Resumen en vivo de lo que se va a generar. Se recalcula con un pequeño retardo: al marcar una carpeta
+        # Qt avisa una vez por cada elemento que cambia, y así se calcula una sola vez al final.
+        self.summaryTimer = QTimer(self)
+        self.summaryTimer.setSingleShot(True)
+        self.summaryTimer.setInterval(50)
+        self.summaryTimer.timeout.connect(self.update_summary)
+        for senal in (self.treeWidget.itemChanged, self.wmsComboBox.checkedItemsChanged, self.addWMS.toggled,
+                      self.outputFormat.currentIndexChanged, self.nameProject.textChanged, self.pathFolderProject.textChanged,
+                      self.reprojectCheck.toggled, self.selectProjection.crsChanged):
+            senal.connect(lambda *args: self.summaryTimer.start())
+        self.update_summary()
+
+    def load_last_crs(self):
+        """SRC inicial: el último usado (se recuerda entre sesiones) o, la primera vez, el del proyecto abierto en QGIS."""
+        crs = QgsCoordinateReferenceSystem(QSettings().value(SETTINGS + 'last_crs', ''))
+        if not crs.isValid():
+            crs = QgsProject.instance().crs()
+        if not crs.isValid():
+            crs = QgsCoordinateReferenceSystem('EPSG:25830')  #ETRS89 / UTM 30N (España peninsular)
+        self.selectProjection.setCrs(crs)
+
+    def remember_crs(self, crs):
+        if crs.isValid():
+            QSettings().setValue(SETTINGS + 'last_crs', crs.authid() or crs.toWkt())
+
+    def warn(self, message):
+        """Muestra un aviso al usuario."""
+        QMessageBox.warning(self, "Error", message)
 
     def reset_form(self):
         """Vacía el formulario: carpetas, capas marcadas, nombre, destino, WMS y formato. Se mantiene el SRC."""
@@ -193,8 +153,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.nameProject.clear()
         self.pathFolderProject.clear()
         self.outputFormat.setCurrentIndex(0)  #Modo recomendado
+        self.reprojectCheck.setChecked(True)
         self.addWMS.setChecked(False)
         self.wmsComboBox.deselectAllOptions()
+        self.update_summary()
 
     # ------------------------------------------------------------------ Selección de carpetas
 
@@ -238,6 +200,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._add_tree_items(raiz, scan_folder(folder))
         raiz.setExpanded(True)
         self.apply_filter(self.filterBox.text())  #Si hay una búsqueda escrita, se aplica también a la carpeta nueva
+        self.update_summary()
 
     def remove_current_folder(self):
         """Quita del árbol la carpeta de capas a la que pertenece el elemento en el que se ha hecho clic."""
@@ -247,6 +210,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         while item.parent() is not None:  #Se sube hasta la raíz (la carpeta añadida)
             item = item.parent()
         self.treeWidget.takeTopLevelItem(self.treeWidget.indexOfTopLevelItem(item))
+        self.update_summary()
 
     def load_tree(self, folder):
         """Deja el árbol solo con la carpeta indicada (se mantiene por compatibilidad con las pruebas)."""
@@ -256,11 +220,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     # ------------------------------------------------------------------ Árbol de capas
 
-    def _setup_item(self, item, path, kind, layer):
+    def _setup_item(self, item, path, kind, layer, geometry=None):
         item.setData(0, PATH_ROLE, path)  #Se le guarda la ruta al objeto internamente (se ve en el panel el nombre, pero no la ruta)
         item.setData(0, KIND_ROLE, kind)
         item.setData(0, LAYER_ROLE, layer)
-        item.setIcon(0, QIcon(ICONS.get(kind, RASTER_ICON)))
+        item.setIcon(0, QgsApplication.getThemeIcon(ICONS.get(geometry or kind, ICONS[TABLE])))
         # Casilla de verificación. En las carpetas, AutoTristate hace que marcar la carpeta marque todo su contenido
         # (y si solo hay algunos elementos marcados, la casilla de la carpeta aparece a medias)
         flags = item.flags() | Qt.ItemFlag.ItemIsUserCheckable
@@ -272,7 +236,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def _add_tree_items(self, parent, entries):
         for entry in entries:
             item = QTreeWidgetItem(parent, [entry.name])
-            self._setup_item(item, entry.path, entry.kind, entry.layer)
+            self._setup_item(item, entry.path, entry.kind, entry.layer, entry.geometry)
             self._add_tree_items(item, entry.children)  #Recursivo: añade el contenido de las subcarpetas
 
     def selected_sources(self):
@@ -303,6 +267,46 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             raiz = self.treeWidget.topLevelItem(i)
             recorrer(raiz, raiz.data(0, PATH_ROLE))
         return sources
+
+    def count_layers(self):
+        """Número de capas que se van a exportar (las de los ficheros multicapa cuentan una a una)."""
+        total = 0
+        for _raiz, path, layers in self.selected_sources():
+            if os.path.isdir(path):
+                continue
+            total += len(layers) if layers is not None else len(self._item_layers(path)) or 1
+        return total
+
+    def _item_layers(self, path):
+        """Capas internas de un fichero multicapa según el árbol (sin volver a leer el disco)."""
+        def buscar(item):
+            if item.data(0, KIND_ROLE) == MULTILAYER and item.data(0, PATH_ROLE) == path:
+                return [item.child(i).data(0, LAYER_ROLE) for i in range(item.childCount())]
+            for i in range(item.childCount()):
+                encontrado = buscar(item.child(i))
+                if encontrado is not None:
+                    return encontrado
+            return None
+        return buscar(self.treeWidget.invisibleRootItem()) or []
+
+    def update_summary(self):
+        """Texto bajo el formulario con lo que se va a generar, p. ej. '7 capas · 2 WMS · un solo GeoPackage → ...qgz'."""
+        capas = self.count_layers()
+        wms = len(self.wmsComboBox.checkedItems()) if self.addWMS.isChecked() else 0
+        partes = [f"{capas} capa{'s' if capas != 1 else ''}"]
+        if wms:
+            partes.append(f"{wms} WMS")
+        if capas:
+            partes.append(MODE_NAMES.get(self.outputFormat.currentData(), ''))
+            if self.reprojectCheck.isChecked():  #Deja claro qué se hace con el SRC de las capas
+                partes.append(f"reproyectadas a {self.selectProjection.crs().authid() or 'SRC del proyecto'}")
+            else:
+                partes.append("en su SRC original")
+        texto = " · ".join(partes)
+        nombre, carpeta = self.nameProject.text().strip(), self.pathFolderProject.text().strip()
+        if nombre and carpeta:
+            texto += f"  →  {os.path.join(carpeta, nombre + '.qgz')}"
+        self.summaryLabel.setText(texto)
 
     def apply_filter(self, texto):
         """Muestra solo los elementos cuyo nombre contiene el texto (y las carpetas que los contienen)."""
@@ -420,7 +424,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 return self.warn(f"No se puede sobrescribir {gpkg}.\n¿Está abierto en QGIS? Ciérralo o elige otro nombre.")
         jobs = self.build_jobs(folder_project, name, self.outputFormat.currentData())
 
-        self.task = ExportTask(jobs, self.selectProjection.crs())
+        crs = self.selectProjection.crs() if self.reprojectCheck.isChecked() else None  #None: se copian en su SRC original
+        self.task = ExportTask(jobs, crs)
         if background:
             self.createProject.setEnabled(False)  #Evita lanzar dos veces la creación mientras se exporta
             self.resetButton.setEnabled(False)

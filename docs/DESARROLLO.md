@@ -16,6 +16,8 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 | Formato del proyecto | `.qgz`, rutas relativas, guardado una sola vez |
 | Formato de salida | Selector: **Un solo GeoPackage + GeoTIFF** (por defecto; estilos guardados dentro del GeoPackage), **Un GeoPackage por capa** o **Conservar** (si GDAL no puede escribirlo, se convierte) |
 | Orígenes de capas | Varias carpetas a la vez (raíces del árbol). Cada carpeta de origen es un grupo del proyecto; en los modos de ficheros sueltos, también una subcarpeta |
+| Valores recordados entre sesiones | Últimas carpetas de capas y de proyecto, último SRC (QSettings, prefijo `project_builder/`) |
+| SRC | Casilla "Reproyectar todas las capas a este SRC" (marcada por defecto). Desmarcada: cada capa conserva su SRC original y el proyecto reproyecta al vuelo |
 | Rama de trabajo | `fase4` (v0.4.0 publicada en `main` con etiqueta) |
 
 ## Convenciones de código
@@ -40,6 +42,8 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 - [x] `QgsCoordinateReferenceSystem(int, EpsgCrsId)` → `QgsCoordinateReferenceSystem.fromEpsgId()` o el objeto CRS
 - [x] Quitar `resources.py` (pyrcc5 no existe en Qt6) → rutas de fichero
 - [x] `metadata.txt`: `qgisMinimumVersion=3.34`, `supportsQt6=True`
+- [x] En los `.ui`, todo `spacer` necesita `sizeHint` (Qt6/PyQt6 falla sin él; Qt5 lo tolera)
+- Comprobar un `.ui` con Qt6 sin abrir QGIS 4: cargarlo con `PyQt6.uic.loadUiType` (simulando `qgis.gui`)
 
 Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fases 1-3, v0.4.0).
 
@@ -62,7 +66,7 @@ Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fases 1-3, v0.4.0).
 ## Estructura
 ```
 __init__.py / project_builder.py    entrada del plugin (menú, botón, panel)
-project_builder_dockwidget.py(.ui)  interfaz
+project_builder_dockwidget.py(.ui)  interfaz (el .ui se edita con Qt Designer: secciones plegables QgsCollapsibleGroupBox)
 core/          lógica sin interfaz: formats, scanner, exporter, project, task, services
 services.json  servicios WMS
 tests/         datos de prueba y scripts para la consola de QGIS
@@ -104,9 +108,9 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 ### Mejoras visuales y de uso (propuestas, por priorizar)
 | # | Mejora | Qué aporta |
 |---|---|---|
-| V1 | Panel en 3 secciones plegables (1 Capas · 2 Servicios · 3 Proyecto) en lugar de pestañas | Todo a la vista y en orden de uso; los WMS dejan de estar "escondidos" |
-| V2 | Resumen en vivo junto al botón: "7 capas · 2 WMS · un solo GeoPackage" | Saber qué se va a generar antes de pulsar |
-| V3 | Iconos de QGIS según geometría y tipo (punto/línea/polígono, ráster, GeoPackage, carpeta) | Árbol más legible y con el aspecto nativo de QGIS (y de su tema oscuro) |
+| V1 ✅ | Panel en 3 secciones plegables (1 Capas · 2 Servicios · 3 Proyecto) en lugar de pestañas | Todo a la vista y en orden de uso; los WMS dejan de estar "escondidos" |
+| V2 ✅ | Resumen en vivo junto al botón: "7 capas · 2 WMS · un solo GeoPackage" | Saber qué se va a generar antes de pulsar |
+| V3 ✅ | Iconos de QGIS según geometría y tipo (punto/línea/polígono, ráster, GeoPackage, carpeta) | Árbol más legible y con el aspecto nativo de QGIS (y de su tema oscuro) |
 | V4 | Información al pasar el ratón por una capa: ruta, SRC, nº de elementos, tamaño | Elegir sin abrir las capas |
 | V5 | "Ver en el mapa": resaltar la extensión de la capa al hacer clic | Comprobar de un vistazo dónde cae cada capa |
 | V6 | Avisos dentro del propio panel (barra de mensajes) en lugar de ventanas emergentes | Menos interrupciones |

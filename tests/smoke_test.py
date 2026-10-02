@@ -41,7 +41,7 @@ def _panel():
     return dw
 
 
-def _crear(marcar, nombre, modo=SINGLE):
+def _crear(marcar, nombre, modo=SINGLE, reproyectar=True):
     """Crea un proyecto marcando los elementos cuyo texto esté en 'marcar'. Devuelve (proyecto, ficheros, carpeta)."""
     tmp = tempfile.mkdtemp(prefix="pb_test_").replace('\\', '/') + "/carpeta_nueva/proyecto"  # aún no existe: el plugin debe crearla
     dw = _panel()
@@ -52,6 +52,7 @@ def _crear(marcar, nombre, modo=SINGLE):
     dw.nameProject.setText(nombre)
     dw.selectProjection.setCrs(QgsCoordinateReferenceSystem("EPSG:25830"))
     dw.outputFormat.setCurrentIndex(dw.outputFormat.findData(modo))
+    dw.reprojectCheck.setChecked(reproyectar)
     dw.create_project(background=False)  # sin segundo plano para comprobar el resultado al momento
     dw.deleteLater()
     p = QgsProject()
@@ -83,6 +84,12 @@ grupos = _grupos(p.layerTreeRoot())
 
 # 2. Árbol: varias carpetas, búsqueda y quitar carpeta
 dw = _panel()
+for _i in range(dw.treeWidget.topLevelItemCount()):
+    dw.treeWidget.topLevelItem(_i).setCheckState(0, Qt.CheckState.Checked)
+dw.update_summary()
+resumen = dw.summaryLabel.text()
+for _i in range(dw.treeWidget.topLevelItemCount()):
+    dw.treeWidget.topLevelItem(_i).setCheckState(0, Qt.CheckState.Unchecked)
 raices = [dw.treeWidget.topLevelItem(i).text(0) for i in range(dw.treeWidget.topLevelItemCount())]
 multi = [it.childCount() for it in _items(dw.treeWidget.invisibleRootItem()) if it.text(0) == 'multicapa.gpkg']  # se guarda el número, no el elemento
 dw.filterBox.setText("PUNTOS")  # en mayúsculas a propósito: la búsqueda no distingue
@@ -103,6 +110,10 @@ dw.deleteLater()
 # 3. Solo una capa interna del GeoPackage
 p2, ficheros2, _ = _crear(("lineas_25830",), "parcial")
 capas2 = sorted(lyr.name() for lyr in p2.mapLayers().values())
+
+# 3b. Sin reproyectar: cada capa conserva su SRC original
+p5, _, _ = _crear(("puntos_23030.shp", "mdt_4326.tif"), "sin_reproyectar", SINGLE, reproyectar=False)
+src5 = sorted((lyr.name(), lyr.crs().authid()) for lyr in p5.mapLayers().values())
 
 # 4. Un GeoPackage por capa
 p3, ficheros3, _ = _crear(TODAS, "porcapa", CONVERT)
@@ -131,6 +142,9 @@ checks = {
     "[árbol] rechaza una carpeta que contiene a otras": rechazo,
     "[árbol] quitar carpeta": tras_quitar == ['vectorial'],
     "[árbol] botón Limpiar vacía el formulario": limpio,
+    "[panel] resumen '9 capas · un solo GeoPackage' (carpetas enteras)": resumen.startswith("9 capas · un solo GeoPackage"),
+    "[sin reproyectar] cada capa en su SRC y el proyecto en 25830": src5 == [('mdt_4326', 'EPSG:4326'), ('puntos_23030', 'EPSG:23030')]
+        and p5.crs().authid() == 'EPSG:25830',
     "[parcial] solo lineas_25830": capas2 == ['lineas_25830'] and 'parcial.gpkg' in ficheros2,
     "[por capa] 8 capas válidas, .gpkg y .tif": len(capas3) == 8 and all(lyr.isValid() for lyr in capas3)
         and all(lyr.source().split('|')[0].lower().endswith(('.gpkg', '.tif')) for lyr in capas3),
