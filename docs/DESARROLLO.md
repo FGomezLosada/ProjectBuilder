@@ -80,10 +80,15 @@ tests/         datos de prueba y scripts para la consola de QGIS
 - Para añadir uno: incluir su extensión en VECTOR_EXTENSIONS/RASTER_EXTENSIONS (y en KEEP_* si GDAL lo escribe)
 
 ## Datos de prueba
-`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
+`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/config_test.py` (configuraciones guardadas, sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
 `tests/check_catalog.py` (comprueba que los 71 servicios del catálogo responden y que sus capas existen; ejecutarlo de vez en cuando). También vía MCP de QGIS 3.40.
 Si una prueba larga se lanza por el MCP, conviene hacerlo con `QTimer.singleShot` y guardar la salida en un fichero:
 así la llamada no espera a que termine (el MCP corta a los 60 s).
+Varias pruebas seguidas: encadenarlas (cada una programa la siguiente al terminar), NUNCA varios `singleShot` a la vez:
+Processing/GDAL atienden eventos mientras trabajan, la siguiente prueba arranca dentro de la anterior, recarga el plugin
+en mitad y QGIS se cierra (0xc0000374, memoria corrompida). Para diagnosticar cierres: `faulthandler.enable(fichero)`
+con el fichero dentro de la carpeta del proyecto (`pb_crash.txt`, ignorado por git).
+Señales: conectar a métodos, no a `lambda` que usen `self` (un lambda puede ejecutarse con el panel ya destruido: cierre en QGIS 4).
 Ráster + zona: recortar y reproyectar en un solo gdalwarp crea un ráster gigantesco (aplica la resolución en grados
 como si fueran metros); por eso se recorta primero en el SRC original y después se reproyecta.
 Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
@@ -125,7 +130,7 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | 4.6 | Estadísticas de las capas seleccionadas | TFM |
 | 4.7 | Conexión a base de datos (PostGIS) como origen de capas | TFM |
 | 4.8 | Estilos `.qml` con símbolos SVG (pendiente de definir) | Word de mejoras |
-| 4.9 | Plantillas de configuración: guardar/cargar en `.json` carpetas, capas marcadas, WMS, SRC y modo (p. ej. "Proyecto municipal Nerja") | Idea aprobada |
+| 4.9 ✅ | Configuraciones guardadas: un `.json` por configuración en el perfil (carpetas, capas marcadas, servicios, SRC, formato y zona de trabajo); se elige en un desplegable arriba del panel | Idea aprobada |
 | 4.10 | Origen "capas del proyecto abierto en QGIS" (además de carpetas y BBDD) | Idea |
 
 ### Mejoras visuales y de uso (propuestas, por priorizar)

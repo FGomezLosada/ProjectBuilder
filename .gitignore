@@ -21,3 +21,6 @@ dist/
 
 # Informe generado por tools/check_catalog_ci.py
 informe_catalogo.md
+# Diagnóstico de las pruebas lanzadas por el MCP
+pb_diagnostico.txt
+pb_crash.txt

@@ -20,6 +20,29 @@
     <property name="rightMargin"><number>4</number></property>
     <property name="bottomMargin"><number>4</number></property>
     <item>
+     <layout class="QHBoxLayout" name="configLayout">
+      <item>
+       <widget class="QLabel" name="configLabel"><property name="text"><string>Configuración</string></property></widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="configCombo">
+        <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property>
+        <property name="toolTip"><string>Elige una configuración guardada para rellenar el panel de una vez</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="saveConfigButton">
+        <property name="toolTip"><string>Guardar lo que hay ahora en el panel como configuración (capas, servicios, zona, SRC y formato)</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="deleteConfigButton">
+        <property name="toolTip"><string>Borrar la configuración elegida</string></property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
      <widget class="QScrollArea" name="scrollArea">
       <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
       <property name="widgetResizable"><bool>true</bool></property>

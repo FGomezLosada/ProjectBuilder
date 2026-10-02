@@ -13,14 +13,31 @@ import datetime
 import os
 import unicodedata
 
-from qgis.core import Qgis, QgsApplication, QgsCoordinateReferenceSystem, QgsNetworkAccessManager, QgsProject
+from qgis.core import (
+    Qgis,
+    QgsApplication,
+    QgsCoordinateReferenceSystem,
+    QgsNetworkAccessManager,
+    QgsProject,
+    QgsRectangle,
+    QgsVectorLayer,
+)
 from qgis.gui import QgsExtentWidget
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtCore import QSettings, Qt, QTimer, QUrl
 from qgis.PyQt.QtGui import QFont
 from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
-from qgis.PyQt.QtWidgets import QAbstractItemView, QFileDialog, QMenu, QMessageBox, QPushButton, QTreeWidgetItem
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFileDialog,
+    QInputDialog,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QTreeWidgetItem,
+)
 
+from .core import configs
 from .core import project as qgis_project
 from .core import services as svc
 from .core.clip import ZONE_TABLE, ZoneError, apply_margin, geometry_from_extent, geometry_from_layer, view_extent, write_zone
@@ -138,6 +155,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.servicesTree.itemExpanded.connect(self.load_service_layers)  #Las capas de un servicio se piden al desplegarlo
         self.favoritesDefault.setChecked(QSettings().value(SETTINGS + 'favorites_default', False, type=bool))
         self.favoritesDefault.toggled.connect(lambda v: QSettings().setValue(SETTINGS + 'favorites_default', v))
+        self.config_services = []  #Capas de servicios de una configuración que no están a la vista en el árbol
         self.pending = {}  #Peticiones GetCapabilities en curso (se guardan para que no se eliminen antes de tiempo)
         self.health_task = None  #Comprobación automática de servicios en curso
         self.load_services_tree()
@@ -146,6 +164,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.load_last_crs()
         self.selectProjection.crsChanged.connect(self.remember_crs)
         self.setup_zone()
+        self.setup_configs()
 
         # Resumen en vivo de lo que se va a generar. Se recalcula con un pequeño retardo: al marcar una carpeta
         # Qt avisa una vez por cada elemento que cambia, y así se calcula una sola vez al final.
@@ -173,6 +192,211 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def remember_crs(self, crs):
         if crs.isValid():
             QSettings().setValue(SETTINGS + 'last_crs', crs.authid() or crs.toWkt())
+
+    # ------------------------------------------------------------------ Configuraciones guardadas (4.9)
+
+    def setup_configs(self):
+        """Línea de arriba del panel: elegir, guardar y borrar configuraciones."""
+        self.saveConfigButton.setIcon(QgsApplication.getThemeIcon('/mActionFileSave.svg'))
+        self.deleteConfigButton.setIcon(QgsApplication.getThemeIcon('/mActionDeleteSelected.svg'))
+        self.saveConfigButton.clicked.connect(self.save_current_config)
+        self.deleteConfigButton.clicked.connect(self.delete_current_config)
+        self.configCombo.activated.connect(self.config_chosen)  #activated: solo cuando la elige el usuario
+        self.refresh_configs()
+
+    def refresh_configs(self, select=None):
+        """Rellena el desplegable con las configuraciones guardadas (y deja elegida select, si se indica)."""
+        self.configCombo.blockSignals(True)
+        self.configCombo.clear()
+        self.configCombo.addItem("— Elegir una configuración guardada —", None)
+        for nombre, ruta in configs.list_configs():
+            self.configCombo.addItem(nombre, ruta)
+        indice = self.configCombo.findText(select) if select else 0
+        self.configCombo.setCurrentIndex(max(indice, 0))
+        self.configCombo.blockSignals(False)
+        self.deleteConfigButton.setEnabled(self.configCombo.count() > 1)
+
+    def ask_name(self, actual):
+        """Pide el nombre con el que guardar la configuración (método aparte para poder probarlo sin ventanas)."""
+        nombre, ok = QInputDialog.getText(self, "Guardar configuración", "Nombre de la configuración:", text=actual)
+        return nombre.strip() if ok else ''
+
+    def confirm(self, pregunta):
+        """Pregunta Sí/No al usuario."""
+        botones = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        return QMessageBox.question(self, "ProjectBuilder", pregunta, botones) == QMessageBox.StandardButton.Yes
+
+    def save_current_config(self):
+        actual = self.configCombo.currentText() if self.configCombo.currentData() else ''
+        nombre = self.ask_name(actual)
+        if not nombre:
+            return
+        if os.path.isfile(configs.config_path(nombre)) and nombre != actual \
+                and not self.confirm(f"Ya hay una configuración llamada «{nombre}». ¿Sustituirla?"):
+            return
+        try:
+            configs.save_config(nombre, self.config_to_dict())
+        except configs.ConfigError as e:
+            return self.warn(str(e))
+        self.refresh_configs(select=nombre)
+        self.iface.messageBar().pushMessage("ProjectBuilder", f"Configuración «{nombre}» guardada",
+                                            level=Qgis.MessageLevel.Success, duration=5)
+
+    def delete_current_config(self):
+        if not self.configCombo.currentData():
+            return self.warn("Elige primero en el desplegable la configuración que quieres borrar")
+        nombre = self.configCombo.currentText()
+        if self.confirm(f"¿Borrar la configuración «{nombre}»?"):
+            configs.delete_config(nombre)
+            self.refresh_configs()
+
+    def config_chosen(self, indice):
+        ruta = self.configCombo.itemData(indice)
+        if not ruta:
+            return
+        try:
+            avisos = self.apply_config(configs.load_config(ruta))
+        except configs.ConfigError as e:
+            return self.warn(str(e))
+        self.configCombo.setCurrentIndex(indice)  #apply_config limpia antes el panel (y con él el desplegable)
+        if avisos:
+            self.warn("Configuración cargada, pero con estos avisos:\n\n- " + "\n- ".join(avisos))
+
+    def _checked_items(self):
+        """
+        Lo marcado en el árbol de capas, de la forma más corta posible: una carpeta marcada entera se guarda como
+        carpeta (así, si mañana tiene un fichero nuevo, también se incluirá); un fichero multicapa a medias, con sus capas.
+        """
+        marcadas = []
+
+        def recorrer(item):
+            estado = item.checkState(0)
+            if estado == Qt.CheckState.Checked:
+                marcadas.append({'ruta': item.data(0, PATH_ROLE), 'capas': None})
+            elif estado == Qt.CheckState.PartiallyChecked:
+                if item.data(0, KIND_ROLE) == MULTILAYER:
+                    capas = [item.child(i).data(0, LAYER_ROLE) for i in range(item.childCount())
+                             if item.child(i).checkState(0) == Qt.CheckState.Checked]
+                    marcadas.append({'ruta': item.data(0, PATH_ROLE), 'capas': capas})
+                else:
+                    for i in range(item.childCount()):
+                        recorrer(item.child(i))
+
+        for i in range(self.treeWidget.topLevelItemCount()):
+            recorrer(self.treeWidget.topLevelItem(i))
+        return marcadas
+
+    def config_to_dict(self):
+        """Todo lo que se guarda de una configuración (menos el nombre y la carpeta del proyecto, que cambian cada vez)."""
+        capa = self.zoneLayer.currentLayer()
+        rectangulo = self.zoneExtent.outputExtent()
+        crs = self.selectProjection.crs()
+        return {
+            'capas': {'carpetas': self.source_folders(), 'marcadas': self._checked_items()},
+            'formato': self.outputFormat.currentData(),
+            'reproyectar': self.reprojectCheck.isChecked(),
+            'src': crs.authid() or crs.toWkt(),
+            'servicios': {'activo': self.addWMS.isChecked(), 'lista': [s.to_dict() for s in self.selected_services()]},
+            'zona': {
+                'activa': self.groupZone.isChecked(),
+                'tipo': 'capa' if self.zoneByLayer.isChecked() else 'rectangulo',
+                'capa': {'fuente': capa.source(), 'proveedor': capa.providerType(), 'nombre': capa.name()} if capa else None,
+                'seleccion': capa.selectedFeatureIds() if capa and self.zoneSelected.isChecked() else [],
+                'solo_seleccion': self.zoneSelected.isChecked(),
+                'rectangulo': [rectangulo.xMinimum(), rectangulo.yMinimum(), rectangulo.xMaximum(), rectangulo.yMaximum()]
+                if not rectangulo.isNull() else None,
+                'src_rectangulo': self.zoneExtent.outputCrs().authid(),
+                'margen': self.zoneMargin.value(),
+                'anadir_capa': self.zoneAddLayer.isChecked(),
+            },
+        }
+
+    def _zone_layer_from_config(self, datos):
+        """La capa de la zona: si ya está abierta en QGIS se usa esa; si no, se abre desde su fichero."""
+        for capa in QgsProject.instance().mapLayers().values():
+            if capa.source() == datos.get('fuente'):
+                return capa, None
+        if datos.get('proveedor') == 'memory':  #Las capas temporales no se guardan en disco: no se pueden volver a abrir
+            return None, f"La capa de la zona «{datos.get('nombre')}» era temporal y ya no está abierta en QGIS"
+        capa = QgsVectorLayer(datos.get('fuente', ''), datos.get('nombre') or 'zona', datos.get('proveedor') or 'ogr')
+        if not capa.isValid():
+            return None, f"No se encuentra la capa de la zona de trabajo: {datos.get('fuente')}"
+        QgsProject.instance().addMapLayer(capa)
+        return capa, None
+
+    def apply_config(self, datos):
+        """Rellena el panel con una configuración. Devuelve la lista de avisos (lo que ya no existe)."""
+        avisos = []
+        self.reset_form()
+        capas = datos.get('capas', {})
+        for carpeta in capas.get('carpetas', []):
+            if os.path.isdir(carpeta):
+                self.add_source_folder(carpeta)
+            else:
+                avisos.append(f"Ya no existe la carpeta {carpeta}")
+        elementos = {}  #ruta -> elemento del árbol
+
+        def indexar(item):
+            for i in range(item.childCount()):
+                hijo = item.child(i)
+                if hijo.data(0, LAYER_ROLE) is None:  #Las capas internas comparten ruta con su fichero
+                    elementos[os.path.normcase(hijo.data(0, PATH_ROLE))] = hijo
+                indexar(hijo)
+
+        indexar(self.treeWidget.invisibleRootItem())
+        for marcada in capas.get('marcadas', []):
+            item = elementos.get(os.path.normcase(marcada.get('ruta') or ''))
+            if item is None:
+                avisos.append(f"Ya no existe {marcada.get('ruta')}")
+            elif marcada.get('capas') is None:
+                item.setCheckState(0, Qt.CheckState.Checked)
+            else:
+                for i in range(item.childCount()):
+                    if item.child(i).data(0, LAYER_ROLE) in marcada['capas']:
+                        item.child(i).setCheckState(0, Qt.CheckState.Checked)
+
+        indice = self.outputFormat.findData(datos.get('formato'))
+        if indice >= 0:
+            self.outputFormat.setCurrentIndex(indice)
+        self.reprojectCheck.setChecked(datos.get('reproyectar', True))
+        crs = QgsCoordinateReferenceSystem(datos.get('src', ''))
+        if crs.isValid():
+            self.selectProjection.setCrs(crs)
+
+        servicios = datos.get('servicios', {})
+        claves = {svc.Service.from_dict(s).key(): s for s in servicios.get('lista', [])}
+        encontradas = set()
+        for item in self._service_leaves():
+            clave = svc.Service.from_dict(item.data(0, SERVICE_ROLE)).key()
+            if clave in claves:
+                item.setCheckState(0, Qt.CheckState.Checked)
+                encontradas.add(clave)
+        # Las capas que venían de desplegar un servicio no están en el árbol hasta desplegarlo: se muestran aparte
+        self.config_services = [svc.Service.from_dict(s) for k, s in claves.items() if k not in encontradas]
+        if self.config_services:
+            self.load_services_tree()
+        self.addWMS.setChecked(servicios.get('activo', False))
+
+        zona = datos.get('zona', {})
+        self.zoneByLayer.setChecked(zona.get('tipo', 'capa') == 'capa')
+        self.zoneByExtent.setChecked(zona.get('tipo') == 'rectangulo')
+        if zona.get('capa'):
+            capa, aviso = self._zone_layer_from_config(zona['capa'])
+            if aviso:
+                avisos.append(aviso)
+            else:
+                self.zoneLayer.setLayer(capa)
+                if zona.get('solo_seleccion'):
+                    capa.selectByIds(zona.get('seleccion', []))
+        self.zoneSelected.setChecked(zona.get('solo_seleccion', False))
+        if zona.get('rectangulo'):
+            self.zoneExtent.setOutputExtentFromUser(QgsRectangle(*zona['rectangulo']),
+                                                    QgsCoordinateReferenceSystem(zona.get('src_rectangulo', '')))
+        self.zoneMargin.setValue(zona.get('margen', 0))
+        self.zoneAddLayer.setChecked(zona.get('anadir_capa', True))
+        self.groupZone.setChecked(zona.get('activa', False))
+        self.update_summary()
+        return avisos
 
     # ------------------------------------------------------------------ Zona de trabajo (recorte)
 
@@ -252,6 +476,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.servicesFilter.clear()
         for item in self._service_leaves():
             item.setCheckState(0, Qt.CheckState.Unchecked)
+        if self.config_services:
+            self.config_services = []
+            self.load_services_tree()
+        self.configCombo.setCurrentIndex(0)  #«Elegir una configuración guardada»
         self.apply_favorites_default()
         self.update_summary()
 
@@ -504,6 +732,12 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     self._add_service_node(grupo, servicio)
         if not lista:
             self._node(conexiones, "No hay conexiones: usa el botón + para crear una", 'aviso').setDisabled(True)
+
+        if self.config_services:  #Capas de una configuración guardada que no se ven en los bloques de arriba
+            de_config = self._root("Servicios de la configuración")
+            for servicio in self.config_services:
+                self._add_service_node(de_config, servicio).setCheckState(0, Qt.CheckState.Checked)
+            de_config.setExpanded(True)
 
         catalogo = self._root("Catálogo ProjectBuilder")
         try:
