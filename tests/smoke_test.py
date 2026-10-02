@@ -84,7 +84,7 @@ grupos = _grupos(p.layerTreeRoot())
 # 2. Árbol: varias carpetas, búsqueda y quitar carpeta
 dw = _panel()
 raices = [dw.treeWidget.topLevelItem(i).text(0) for i in range(dw.treeWidget.topLevelItemCount())]
-multi = [it for it in _items(dw.treeWidget.invisibleRootItem()) if it.text(0) == 'multicapa.gpkg']
+multi = [it.childCount() for it in _items(dw.treeWidget.invisibleRootItem()) if it.text(0) == 'multicapa.gpkg']  # se guarda el número, no el elemento
 dw.filterBox.setText("PUNTOS")  # en mayúsculas a propósito: la búsqueda no distingue
 visibles = [it.text(0) for it in _items(dw.treeWidget.invisibleRootItem()) if not it.isHidden() and it.childCount() == 0]
 dw.filterBox.clear()
@@ -94,6 +94,10 @@ avisos.clear()
 dw.treeWidget.setCurrentItem(dw.treeWidget.topLevelItem(1).child(0))  # una capa de la carpeta raster
 dw.remove_current_folder()
 tras_quitar = [dw.treeWidget.topLevelItem(i).text(0) for i in range(dw.treeWidget.topLevelItemCount())]
+dw.nameProject.setText("x")
+dw.addWMS.setChecked(True)
+dw.reset_form()
+limpio = dw.treeWidget.topLevelItemCount() == 0 and not dw.nameProject.text() and not dw.addWMS.isChecked()
 dw.deleteLater()
 
 # 3. Solo una capa interna del GeoPackage
@@ -122,10 +126,11 @@ checks = {
     "[1 GPKG] grupos = carpetas de origen": {'vectorial', 'vectorial/subcarpeta', 'vectorial/multicapa', 'raster'} <= set(grupos),
     "[1 GPKG] rutas relativas": p.filePathStorage() == Qgis.FilePathType.Relative,
     "[árbol] dos carpetas de origen": raices == ['vectorial', 'raster'],
-    "[árbol] GeoPackage con sus 2 capas": bool(multi) and multi[0].childCount() == 2,
+    "[árbol] GeoPackage con sus 2 capas": multi == [2],
     "[árbol] búsqueda 'PUNTOS' deja solo puntos_23030.shp": visibles == ['puntos_23030.shp'],
     "[árbol] rechaza una carpeta que contiene a otras": rechazo,
     "[árbol] quitar carpeta": tras_quitar == ['vectorial'],
+    "[árbol] botón Limpiar vacía el formulario": limpio,
     "[parcial] solo lineas_25830": capas2 == ['lineas_25830'] and 'parcial.gpkg' in ficheros2,
     "[por capa] 8 capas válidas, .gpkg y .tif": len(capas3) == 8 and all(lyr.isValid() for lyr in capas3)
         and all(lyr.source().split('|')[0].lower().endswith(('.gpkg', '.tif')) for lyr in capas3),

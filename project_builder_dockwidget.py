@@ -15,7 +15,7 @@ import unicodedata
 from qgis.core import Qgis, QgsApplication
 from qgis.gui import QgsFilterLineEdit
 from qgis.PyQt import QtWidgets, uic
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
@@ -62,6 +62,7 @@ RASTER_ICON = os.path.join(PLUGIN_DIR, 'icon', 'file_raster.png')
 PATH_ROLE = Qt.ItemDataRole.UserRole  #Donde se guarda la ruta en cada elemento del árbol
 KIND_ROLE = Qt.ItemDataRole.UserRole + 1  #Tipo de elemento (carpeta, vectorial, multicapa, ráster)
 LAYER_ROLE = Qt.ItemDataRole.UserRole + 2  #Nombre de la capa interna (solo en las capas de un fichero multicapa)
+SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
 
 
 def normalizar(texto):
@@ -98,6 +99,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.add_source_buttons()
         self.add_filter_box()
         self.add_output_format()
+        self.add_bottom_buttons()
 
         # Disparadores
         self.selectFolderProject.clicked.connect(self.select_project_folder)
@@ -169,15 +171,54 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         layout.addWidget(QLabel("Formato de salida de las capas"), 5, 0)
         layout.addWidget(self.outputFormat, 6, 0)
 
+    def add_bottom_buttons(self):
+        """Botones "Limpiar" y "Crear proyecto" en la misma fila (el botón Crear viene del .ui; se recoloca)."""
+        layout = self.createProject.parentWidget().layout()
+        row, column, _, _ = layout.getItemPosition(layout.indexOf(self.createProject))
+        layout.removeWidget(self.createProject)
+        barra = QWidget()
+        hbox = QHBoxLayout(barra)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        self.resetButton = QPushButton(QgsApplication.getThemeIcon('/mActionNewMap.svg'), "Limpiar")
+        self.resetButton.setToolTip("Deja el formulario vacío para preparar otro proyecto (no borra ningún fichero)")
+        self.resetButton.clicked.connect(self.reset_form)
+        hbox.addWidget(self.resetButton)
+        hbox.addWidget(self.createProject, 1)  #El botón Crear ocupa el resto del ancho
+        layout.addWidget(barra, row, column, 1, 2)
+
+    def reset_form(self):
+        """Vacía el formulario: carpetas, capas marcadas, nombre, destino, WMS y formato. Se mantiene el SRC."""
+        self.treeWidget.clear()
+        self.filterBox.clear()
+        self.nameProject.clear()
+        self.pathFolderProject.clear()
+        self.outputFormat.setCurrentIndex(0)  #Modo recomendado
+        self.addWMS.setChecked(False)
+        self.wmsComboBox.deselectAllOptions()
+
     # ------------------------------------------------------------------ Selección de carpetas
 
+    @staticmethod
+    def _last_dir(key):
+        """Última carpeta usada en un diálogo (se recuerda entre sesiones de QGIS)."""
+        return QSettings().value(SETTINGS + key, '')
+
+    @staticmethod
+    def _remember_dir(key, folder):
+        QSettings().setValue(SETTINGS + key, folder)
+
     def select_project_folder(self):
-        folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", "", QFileDialog.Option.DontResolveSymlinks)
-        self.pathFolderProject.setText(folder)
+        folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", self._last_dir('last_project_dir'),
+                                                  QFileDialog.Option.DontResolveSymlinks)
+        if folder:
+            self._remember_dir('last_project_dir', folder)
+            self.pathFolderProject.setText(folder)
 
     def select_layers_folder(self):
-        folder = QFileDialog.getExistingDirectory(None, "Añadir carpeta de capas", "", QFileDialog.Option.DontResolveSymlinks)
+        folder = QFileDialog.getExistingDirectory(None, "Añadir carpeta de capas", self._last_dir('last_layers_dir'),
+                                                  QFileDialog.Option.DontResolveSymlinks)
         if folder:
+            self._remember_dir('last_layers_dir', os.path.dirname(folder))  #Se abre en la carpeta "madre", para elegir otra hermana fácilmente
             self.add_source_folder(folder)
 
     def source_folders(self):
@@ -382,6 +423,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.task = ExportTask(jobs, self.selectProjection.crs())
         if background:
             self.createProject.setEnabled(False)  #Evita lanzar dos veces la creación mientras se exporta
+            self.resetButton.setEnabled(False)
             self.task.taskCompleted.connect(lambda: self.finish_project(True))
             self.task.taskTerminated.connect(lambda: self.finish_project(False))
             QgsApplication.taskManager().addTask(self.task)  #QGIS muestra el progreso abajo a la derecha
@@ -391,6 +433,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def finish_project(self, completed):
         """Se ejecuta al terminar la exportación: crea el proyecto con las capas exportadas, añade los WMS y lo guarda."""
         self.createProject.setEnabled(True)
+        self.resetButton.setEnabled(True)
         task, self.task = self.task, None
         if not completed:
             return self.iface.messageBar().pushMessage("ProjectBuilder", "Creación del proyecto cancelada",
