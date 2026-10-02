@@ -38,7 +38,7 @@ for _i in range(dw.treeWidget.topLevelItemCount()):
 dw.addWMS.setChecked(True)
 catalogo = dw.servicesTree.topLevelItem(2)
 for it in dw._service_leaves(catalogo):
-    if it.text(0) in SERVICIOS:
+    if it.text(0).replace('⚠', '').strip() in SERVICIOS:  # los servicios pesados llevan '⚠' en el árbol
         it.setCheckState(0, Qt.CheckState.Checked)
 dw.pathFolderProject.setText(tmp)
 dw.nameProject.setText("prueba")

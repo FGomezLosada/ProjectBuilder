@@ -19,8 +19,24 @@ qgis.utils.reloadPlugin('project_builder')
 import project_builder.core.services as svc_module  # noqa: E402
 import project_builder.project_builder_dockwidget as dock_module  # noqa: E402
 
-FAVORITOS = tempfile.mkdtemp(prefix="pb_fav_") + "/favoritos.json"
-svc_module.favorites_path = lambda: FAVORITOS  # favoritos de prueba: no se tocan los del usuario
+import datetime  # noqa: E402
+import json  # noqa: E402
+
+def _escribir(ruta, datos):
+    with open(ruta, 'w', encoding='utf-8') as f:
+        json.dump(datos, f)
+
+
+PERFIL = tempfile.mkdtemp(prefix="pb_perfil_")  # perfil de prueba: no se tocan los ficheros del usuario
+FAVORITOS = PERFIL + "/favoritos.json"
+svc_module.favorites_path = lambda: FAVORITOS
+svc_module.health_path = lambda: PERFIL + "/estado_servicios.json"
+svc_module.profile_dir = lambda: PERFIL
+_cat = {s.name: s for _, lista in svc_module.load_catalog() for s in lista}
+_escribir(PERFIL + "/estado_servicios.json", {'fecha': datetime.date.today().isoformat(), 'servicios': {  # comprobación "de hoy": no se lanza otra por red
+    _cat['Catastro'].key(): {'ok': False, 'url': _cat['Catastro'].url, 'detalle': 'no responde (prueba)'},
+    _cat['Curvas de nivel'].key(): {'ok': True, 'url': 'https://ejemplo.org/mdt-nuevo', 'detalle': 'dirección actualizada'},
+}})
 
 DATA = os.path.join(os.path.dirname(dock_module.__file__), 'tests', 'data').replace('\\', '/')
 CARPETAS = (DATA + '/vectorial', DATA + '/raster')
@@ -113,8 +129,11 @@ dw.toggle_favorite()  # ★ añadir
 fav_guardado = [s.name for s in svc_module.load_favorites(FAVORITOS)]
 fav_arbol = [dw.servicesTree.topLevelItem(0).child(i).text(0) for i in range(dw.servicesTree.topLevelItem(0).childCount())]
 for it in dw._service_leaves():
-    if it.text(0) in ('Mapa base IGN', 'Catastro'):
+    if it.text(0) in ('Mapa base IGN', 'Ortofoto PNOA máxima actualidad'):
         it.setCheckState(0, Qt.CheckState.Checked)  # 'Mapa base IGN' está dos veces (favorito y catálogo): cuenta una
+catastro = [it for it in dw._service_leaves() if it.text(0).replace('⛔', '').strip() == 'Catastro']
+catastro_ok = bool(catastro) and catastro[0].isDisabled() and catastro[0].text(0).startswith('⛔')  # se calcula ya: el árbol se reconstruye
+curvas = [svc_module.Service.from_dict(it.data(0, dock_module.SERVICE_ROLE)).url for it in dw._service_leaves() if it.text(0) == 'Curvas de nivel']
 marcados = [s.name for s in dw.selected_services()]
 dw.servicesTree.setCurrentItem(dw.servicesTree.topLevelItem(0).child(0))
 dw.toggle_favorite()  # ★ quitar
@@ -124,6 +143,14 @@ dw.addWMS.setChecked(True)
 dw.reset_form()
 limpio = dw.treeWidget.topLevelItemCount() == 0 and not dw.nameProject.text() and not dw.addWMS.isChecked() and not dw.selected_services()
 dw.deleteLater()
+
+# Catálogo descargado de GitHub: se usa solo si su versión es más reciente
+_remoto = PERFIL + "/services_remoto.json"
+_escribir(_remoto, {'version': '2000-01-01', 'grupos': []})
+catalogo_viejo = svc_module.best_catalog_path()
+_escribir(_remoto, {'version': '2999-01-01', 'grupos': [{'nombre': 'Remoto', 'servicios': []}]})
+catalogo_nuevo = svc_module.best_catalog_path()
+os.remove(_remoto)
 
 # 3. Solo una capa interna del GeoPackage
 p2, ficheros2, _ = _crear(("lineas_25830",), "parcial")
@@ -173,8 +200,13 @@ checks = {
     "[servicios] tres bloques (Favoritos, Mis conexiones, Catálogo)": raices_serv == ['★ Favoritos', 'Mis conexiones de QGIS', 'Catálogo ProjectBuilder'],
     "[servicios] catálogo con grupos (estatal y comunidades)": len(svc_module.load_catalog()) >= 10,
     "[servicios] ★ añade a favoritos y se guarda": fav_guardado == ['Mapa base IGN'] and fav_arbol == ['Mapa base IGN'],
-    "[servicios] una capa marcada dos veces cuenta una": sorted(marcados) == ['Catastro', 'Mapa base IGN'],
+    "[servicios] una capa marcada dos veces cuenta una": sorted(marcados) == ['Mapa base IGN', 'Ortofoto PNOA máxima actualidad'],
+    "[comprobación] servicio caído desactivado con ⛔": catastro_ok,
+    "[comprobación] usa la dirección corregida": curvas == ['https://ejemplo.org/mdt-nuevo'],
+    "[comprobación] variantes de URL (https, sin /wms.aspx)": svc_module.url_variants('http://a.es/sig/x/wms.aspx')[-1] == 'https://a.es/sig/x',
     "[servicios] ★ quita de favoritos": fav_quitado == [],
+    "[catálogo] usa el de GitHub solo si es más reciente": catalogo_viejo == svc_module.SERVICES_FILE
+        and os.path.normpath(catalogo_nuevo) == os.path.normpath(_remoto),
 }
 
 print("=" * 60)

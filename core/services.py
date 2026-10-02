@@ -12,6 +12,9 @@ from dataclasses import asdict, dataclass, field
 
 # services.json está en la carpeta principal del plugin (junto a metadata.txt)
 SERVICES_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'services.json')
+# Versión más reciente del catálogo, publicada en GitHub: el plugin la descarga (como mucho una vez por semana)
+REMOTE_CATALOG_URL = 'https://raw.githubusercontent.com/FGomezLosada/ProjectBuilder/main/services.json'
+CHECK_EVERY_DAYS = 7  #Cada cuántos días se comprueban los servicios y se busca un catálogo nuevo
 WMS, WMTS, WFS = 'wms', 'wmts', 'wfs'
 PREFERRED_CRS = ('EPSG:25830', 'EPSG:3857', 'EPSG:4326', 'EPSG:4258')  #SRC preferidos para pedir imágenes WMS
 
@@ -34,13 +37,14 @@ class Service:
     tilematrixset: str = ''  #Solo WMTS
     authcfg: str = ''  #Autenticación guardada en QGIS (solo conexiones del usuario)
     crs_list: list = field(default_factory=list)  #SRC que admite la capa (de GetCapabilities)
+    heavy: bool = False  #Servicio pesado (p. ej. WFS de toda España): se avisa en el árbol
 
     def key(self):
         """Identificador único de la capa (para favoritos y para no añadirla dos veces)."""
         return f"{self.type}|{self.url.rstrip('/?')}|{self.layer}".lower()
 
     def to_dict(self):
-        return {k: v for k, v in asdict(self).items() if v not in ('', [], None)}
+        return {k: v for k, v in asdict(self).items() if v not in ('', [], None, False)}
 
     @classmethod
     def from_dict(cls, data):
@@ -56,19 +60,39 @@ class Service:
 
     def uri(self, project_crs=''):
         """Cadena de conexión que QGIS necesita para cargar la capa."""
-        auth = f"&authcfg={self.authcfg}" if self.authcfg else ''
         if self.type == WFS:
             auth_wfs = f" authcfg='{self.authcfg}'" if self.authcfg else ''
             return (f"pagingEnabled='true' restrictToRequestBBOX='1' srsname='{self.choose_crs(project_crs)}' "
                     f"typename='{self.layer}' url='{self.url}' version='auto'{auth_wfs}")  #restrictToRequestBBOX: pide solo lo visible
         if self.type == WMTS:
             crs = self.crs or ('EPSG:3857' if 'google' in self.tilematrixset.lower() or '3857' in self.tilematrixset else self.tilematrixset)
-            return (f"contextualWMSLegend=0&crs={crs}&dpiMode=7&format={self.format}&layers={self.layer}"
-                    f"&styles={self.style or 'default'}&tileMatrixSet={self.tilematrixset}&url={self.url}{auth}")  #QGIS añade él la petición GetCapabilities
-        return f"crs={self.choose_crs(project_crs)}&dpiMode=7&format={self.format}&layers={self.layer}&styles={self.style}&url={self.url}{auth}"
+            params = [('contextualWMSLegend', '0'), ('crs', crs), ('dpiMode', '7'), ('format', self.format),
+                      ('layers', self.layer), ('styles', self.style or 'default'), ('tileMatrixSet', self.tilematrixset),
+                      ('url', capabilities_url(self.url, WMTS))]  #En WMTS, QGIS espera la URL completa de GetCapabilities
+        else:
+            params = [('crs', self.choose_crs(project_crs)), ('dpiMode', '7'), ('format', self.format),
+                      ('layers', self.layer), ('styles', self.style), ('url', self.url)]
+        if self.authcfg:
+            params.append(('authcfg', self.authcfg))
+        return _encode(params)
 
     def provider(self):
         return 'WFS' if self.type == WFS else 'wms'  #WMTS también se carga con el proveedor "wms" de QGIS
+
+
+def _encode(params):
+    """
+    Une los parámetros con QgsDataSourceUri, que protege los caracteres especiales de cada valor
+    (p. ej. una URL que ya lleva '?a=1&b=2'). Sin QGIS (pruebas fuera de QGIS) se unen tal cual.
+    """
+    try:
+        from qgis.core import QgsDataSourceUri
+    except ImportError:
+        return '&'.join(f"{k}={v}" for k, v in params)
+    uri = QgsDataSourceUri()
+    for clave, valor in params:
+        uri.setParam(clave, valor)
+    return bytes(uri.encodedUri()).decode()
 
 
 def capabilities_url(url, service_type):
@@ -109,6 +133,29 @@ def load_catalog(path=SERVICES_FILE):
     return resultado
 
 
+def catalog_version(path):
+    """Versión (fecha AAAA-MM-DD) de un services.json; '' si no tiene o no se puede leer."""
+    try:
+        return str(_read_json(path, "services.json").get('version', ''))
+    except ServicesError:
+        return ''
+
+
+def best_catalog_path():
+    """
+    El catálogo más reciente: el que trae el plugin o el descargado de GitHub (en el perfil del usuario),
+    según su campo "version". Si el descargado está dañado, se usa el del plugin.
+    """
+    descargado = os.path.join(profile_dir(), 'services_remoto.json')
+    if os.path.isfile(descargado) and catalog_version(descargado) > catalog_version(SERVICES_FILE):
+        try:
+            load_catalog(descargado)  #Solo se usa si se puede leer entero
+            return descargado
+        except ServicesError:
+            pass
+    return SERVICES_FILE
+
+
 def load_services(path=SERVICES_FILE):
     """Todas las capas del catálogo en un diccionario {nombre: Service} (compatibilidad con versiones anteriores)."""
     return {s.name: s for _, servicios in load_catalog(path) for s in servicios}
@@ -116,10 +163,58 @@ def load_services(path=SERVICES_FILE):
 
 # ---------------------------------------------------------------- Favoritos (perfil del usuario)
 
-def favorites_path():
-    """favoritos.json en la carpeta del perfil de QGIS (se conserva al actualizar el plugin)."""
+def profile_dir():
+    """Carpeta del plugin dentro del perfil de QGIS: lo que se guarda aquí se conserva al actualizar el plugin."""
     from qgis.core import QgsApplication
-    return os.path.join(QgsApplication.qgisSettingsDirPath(), 'project_builder', 'favoritos.json')
+    return os.path.join(QgsApplication.qgisSettingsDirPath(), 'project_builder')
+
+
+def favorites_path():
+    """favoritos.json en la carpeta del perfil de QGIS."""
+    return os.path.join(profile_dir(), 'favoritos.json')
+
+
+# ---------------------------------------------------------------- Estado de los servicios (comprobación automática)
+
+def health_path():
+    """estado_servicios.json: resultado de la última comprobación automática de los servicios."""
+    return os.path.join(profile_dir(), 'estado_servicios.json')
+
+
+def load_health(path=None):
+    """{'fecha': 'AAAA-MM-DD', 'servicios': {clave: {'ok': bool, 'url': url que funciona, 'detalle': texto}}}"""
+    path = path or health_path()
+    try:
+        return _read_json(path, "estado_servicios.json") if os.path.isfile(path) else {}
+    except ServicesError:
+        return {}
+
+
+def save_health(health, path=None):
+    path = path or health_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(health, f, ensure_ascii=False, indent=2)
+
+
+def url_variants(url):
+    """
+    Direcciones alternativas que se prueban si un servicio no responde, con los cambios más habituales
+    de los organismos: pasar a https, quitar la terminación antigua /wms.aspx y la barra final.
+    """
+    variantes = [url]
+    def anadir(u):
+        if u and u not in variantes:
+            variantes.append(u)
+    if url.startswith('http://'):
+        anadir('https://' + url[len('http://'):])
+    for v in list(variantes):
+        base, _, consulta = v.partition('?')
+        if base.lower().endswith('/wms.aspx'):
+            anadir(base[:-len('/wms.aspx')] + (f'?{consulta}' if consulta else ''))
+        if base.endswith('/'):
+            anadir(base.rstrip('/') + (f'?{consulta}' if consulta else ''))
+    return variantes
 
 
 def load_favorites(path=None):

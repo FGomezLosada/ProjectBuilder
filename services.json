@@ -1,4 +1,5 @@
 {
+  "version": "2026-10-02",
   "grupos": [
     {
       "nombre": "Estatal · IGN y CNIG",
@@ -51,7 +52,8 @@
           "name": "Unidades administrativas (WFS, vectorial)",
           "url": "https://www.ign.es/wfs-inspire/unidades-administrativas",
           "layer": "au:AdministrativeUnit",
-          "type": "wfs"
+          "type": "wfs",
+          "heavy": true
         },
         {
           "name": "Nombres geográficos (topónimos)",
@@ -87,6 +89,19 @@
         {
           "name": "Direcciones y códigos postales (CartoCiudad)",
           "url": "https://www.cartociudad.es/wms-inspire/direcciones-ccpp"
+        },
+        {
+          "name": "Mapa LiDAR (teselas)",
+          "url": "https://wmts-mapa-lidar.idee.es/lidar",
+          "type": "wmts"
+        },
+        {
+          "name": "Riesgo de inundación (SNCZI)",
+          "url": "https://servicios.idee.es/wms-inspire/riesgos-naturales/inundaciones"
+        },
+        {
+          "name": "Geofísica (sismicidad, gravimetría…)",
+          "url": "https://www.ign.es/wms-inspire/geofisica"
         }
       ]
     },
@@ -112,13 +127,19 @@
           "name": "Parcelas catastrales (WFS, vectorial)",
           "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx",
           "layer": "cp:CadastralParcel",
-          "type": "wfs"
+          "type": "wfs",
+          "heavy": true
         },
         {
           "name": "Edificios (WFS, vectorial)",
           "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx",
           "layer": "bu:Building",
-          "type": "wfs"
+          "type": "wfs",
+          "heavy": true
+        },
+        {
+          "name": "Ponencias de valores",
+          "url": "https://ovc.catastro.meh.es/Cartografia/WMS/ponenciasWMS.aspx"
         }
       ]
     },
@@ -132,6 +153,37 @@
         {
           "name": "Mapa geológico 1:50.000 (MAGNA)",
           "url": "https://mapas.igme.es/gis/services/Cartografia_Geologica/IGME_MAGNA_50/MapServer/WMSServer"
+        },
+        {
+          "name": "Mapa geológico 1:200.000",
+          "url": "https://mapas.igme.es/gis/services/Cartografia_Geologica/IGME_Geologico_200/MapServer/WMSServer"
+        },
+        {
+          "name": "Lugares de interés geológico",
+          "url": "https://mapas.igme.es/gis/services/BasesDatos/IGME_IELIG/MapServer/WMSServer"
+        },
+        {
+          "name": "Puntos de agua",
+          "url": "https://mapas.igme.es/gis/services/BasesDatos/IGME_PuntosAgua/MapServer/WMSServer"
+        },
+        {
+          "name": "Movimientos del terreno",
+          "url": "https://mapas.igme.es/gis/services/BasesDatos/IGME_BDMoves_ES/MapServer/WMSServer"
+        }
+      ]
+    },
+    {
+      "nombre": "Estatal · Estadística (INE)",
+      "servicios": [
+        {
+          "name": "Secciones censales",
+          "url": "https://servicios.ine.es/arcgis/services/WMS_INE_SECCIONES_G01/MapServer/WMSServer"
+        },
+        {
+          "name": "Secciones censales (WFS, vectorial)",
+          "url": "https://servicios.ine.es/arcgis/services/WFS_INE_SECCIONES_G01/MapServer/WFSServer",
+          "type": "wfs",
+          "heavy": true
         }
       ]
     },
@@ -146,6 +198,60 @@
           "name": "Mapa topográfico ráster 1:10.000",
           "url": "https://www.ideandalucia.es/services/toporaster10/wms",
           "layer": "toporaster10"
+        },
+        {
+          "name": "Mapa topográfico 1:10.000 (MTA10)",
+          "url": "https://www.ideandalucia.es/wms/mta10r_2001-2013"
+        },
+        {
+          "name": "Nomenclátor (topónimos)",
+          "url": "https://www.ideandalucia.es/services/nga_inspire/wms"
+        },
+        {
+          "name": "Usos del suelo SIOSE 2020 (REDIAM)",
+          "url": "https://www.juntadeandalucia.es/medioambiente/mapwms/REDIAM_siose_2020"
+        },
+        {
+          "name": "Vegetación natural (REDIAM)",
+          "url": "https://www.juntadeandalucia.es/medioambiente/mapwms/REDIAM_Vegetacion_Natural_Andalucia"
+        },
+        {
+          "name": "Zonas inundables (REDIAM)",
+          "url": "https://www.juntadeandalucia.es/medioambiente/mapwms/REDIAM_zonas_inundables_Andalucia"
+        },
+        {
+          "name": "Hábitats de interés comunitario (REDIAM)",
+          "url": "https://www.juntadeandalucia.es/medioambiente/mapwms/REDIAM_habitats_interes_comunitario"
+        },
+        {
+          "name": "Incendios forestales (REDIAM)",
+          "url": "https://www.juntadeandalucia.es/medioambiente/mapwms/REDIAM_perimetros_incendios_forestales"
+        }
+      ]
+    },
+    {
+      "nombre": "Aragón",
+      "servicios": [
+        {
+          "name": "Ortofotos (teselas)",
+          "url": "https://idearagon.aragon.es/AragonFotoWMTS",
+          "type": "wmts"
+        },
+        {
+          "name": "Ortofotos",
+          "url": "https://idearagon.aragon.es/AragonFotos"
+        },
+        {
+          "name": "Cartografía de referencia",
+          "url": "https://idearagon.aragon.es/AragonReferencia"
+        },
+        {
+          "name": "Cartografía básica y temática (Visor2D)",
+          "url": "https://idearagon.aragon.es/Visor2D"
+        },
+        {
+          "name": "Planeamiento urbanístico (SIUa)",
+          "url": "https://idearagon.aragon.es/SIUa_WMS"
         }
       ]
     },
@@ -156,6 +262,10 @@
           "name": "Ortofoto (GRAFCAN)",
           "url": "https://idecan1.grafcan.es/ServicioWMS/OrtoExpress",
           "layer": "ortoexpress"
+        },
+        {
+          "name": "Ortofoto urbana (GRAFCAN)",
+          "url": "https://idecan1.grafcan.es/ServicioWMS/OrtoUrb"
         }
       ]
     },
@@ -166,6 +276,15 @@
           "name": "Mapa de Castilla y León",
           "url": "https://idecyl.jcyl.es/geoserver/ows",
           "layer": "mapacyl:MapaCyL"
+        }
+      ]
+    },
+    {
+      "nombre": "Castilla-La Mancha",
+      "servicios": [
+        {
+          "name": "Espacios naturales protegidos",
+          "url": "https://geoservicios.castillalamancha.es/arcgis/services/Vector/Espacios_Naturales_Protegidos/MapServer/WMSServer"
         }
       ]
     },
@@ -185,11 +304,40 @@
       ]
     },
     {
+      "nombre": "Comunidad de Madrid",
+      "servicios": [
+        {
+          "name": "Usos del suelo (IDEM)",
+          "url": "https://idem.comunidad.madrid/geoidem/UsoDelSuelo/wms"
+        }
+      ]
+    },
+    {
       "nombre": "Comunitat Valenciana",
       "servicios": [
         {
+          "name": "Ortofoto 2021 (teselas, ICV)",
+          "url": "https://terramapas.icv.gva.es/0202_2021CVAL0025_3857/wmts",
+          "type": "wmts"
+        },
+        {
           "name": "Ortofoto 2020 (ICV)",
           "url": "https://terramapas.icv.gva.es/0202_2020CVAL0025"
+        },
+        {
+          "name": "Mapa topográfico (teselas, ICV)",
+          "url": "https://terramapas.icv.gva.es/mapabase_topografico/wmts",
+          "type": "wmts"
+        },
+        {
+          "name": "Mapa topográfico en grises (teselas, ICV)",
+          "url": "https://terramapas.icv.gva.es/mapabase_topografico_grises/wmts",
+          "type": "wmts"
+        },
+        {
+          "name": "Mapa híbrido (teselas, ICV)",
+          "url": "https://terramapas.icv.gva.es/mapabase_hibrid/wmts",
+          "type": "wmts"
         }
       ]
     },
@@ -231,6 +379,28 @@
         {
           "name": "Cartografía (geoEuskadi)",
           "url": "https://www.geo.euskadi.eus/WMS_KARTOGRAFIA"
+        },
+        {
+          "name": "Mapa topográfico (teselas)",
+          "url": "https://www.geo.euskadi.eus/WMTS_TOPO",
+          "type": "wmts"
+        },
+        {
+          "name": "Mapa base gris (teselas)",
+          "url": "https://www.geo.euskadi.eus/WMTS_GRISA",
+          "type": "wmts"
+        },
+        {
+          "name": "Planeamiento territorial",
+          "url": "https://www.geo.euskadi.eus/WMS_PLANGINTZA"
+        },
+        {
+          "name": "Medio ambiente y geociencias",
+          "url": "https://www.geo.euskadi.eus/WMS_INGURUMENA"
+        },
+        {
+          "name": "Agua (URA)",
+          "url": "https://www.geo.euskadi.eus/WMS_URA"
         }
       ]
     },

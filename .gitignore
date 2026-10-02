@@ -18,3 +18,6 @@ dist/
 *.qgs~
 *.qgz~
 *.aux.xml
+
+# Informe generado por tools/check_catalog_ci.py
+informe_catalogo.md

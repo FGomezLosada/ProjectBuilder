@@ -80,8 +80,25 @@ tests/         datos de prueba y scripts para la consola de QGIS
 - Para añadir uno: incluir su extensión en VECTOR_EXTENSIONS/RASTER_EXTENSIONS (y en KEEP_* si GDAL lo escribe)
 
 ## Datos de prueba
-`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet) y `tests/background_test.py` (segundo plano + WMS). También vía MCP de QGIS 3.40.
+`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
+`tests/check_catalog.py` (comprueba que los 71 servicios del catálogo responden y que sus capas existen; ejecutarlo de vez en cuando). También vía MCP de QGIS 3.40.
 Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
+
+## Mantenimiento automático de los servicios
+1. **En el plugin** (`core/health.py`): al abrir el panel, como mucho cada 7 días, comprueba en segundo plano el catálogo y los
+   favoritos. Los caídos se desactivan (⛔) hasta la siguiente comprobación; si responden con `https` o sin `/wms.aspx`, se usa esa
+   dirección. Avisa si falla algún favorito. ⟳ fuerza la comprobación. Resultado en `<perfil>/project_builder/estado_servicios.json`.
+2. **Catálogo desde GitHub**: el plugin descarga `services.json` de la rama `main` (`REMOTE_CATALOG_URL`) y lo usa si su campo
+   `"version"` es más reciente que el del plugin. **Al cambiar el catálogo, subir siempre `"version"` (fecha AAAA-MM-DD).**
+3. **Revisión mensual en GitHub** (`.github/workflows/revisar-catalogo.yml` + `tools/check_catalog_ci.py`, sin QGIS): el día 1 de
+   cada mes; si falla algún servicio abre o actualiza la incidencia "Catálogo: servicios que no responden" (aviso por email).
+   Se puede lanzar a mano desde la pestaña *Actions*.
+
+## Notas sobre servicios
+- Las cadenas de conexión WMS/WMTS se construyen con `QgsDataSourceUri` (protege URLs con `?` y `&`).
+- En WMTS, QGIS necesita la URL completa de GetCapabilities (`?SERVICE=WMTS&REQUEST=GetCapabilities`).
+- MITECO (`wms.mapama.gob.es`): en octubre de 2026 su servidor WMS devuelve un error interno a cualquier petición. Fuera del catálogo hasta que vuelva.
+- Pendiente de añadir al catálogo: Galicia, Asturias, Cantabria, Extremadura, Ceuta y Melilla (no se encontraron servicios que respondieran).
 
 ## Hoja de ruta
 
@@ -98,7 +115,7 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 |---|---|---|
 | 4.1 ✅ | Búsqueda/filtrado en el árbol + capas internas de GeoPackage como hijos | TFM + prueba QGIS 4 |
 | 4.2 ✅ | Más formatos, formato de salida a elegir (incl. un solo GeoPackage) y varias carpetas de origen | TFM + petición |
-| 4.3 🟡 | Servicios web: ★ Favoritos + conexiones de QGIS + catálogo por grupos; WMS, WMTS y WFS (parte 1 ✅; parte 2: ampliar catálogo) | TFM + petición |
+| 4.3 ✅ | Servicios web: ★ Favoritos + conexiones de QGIS + catálogo (17 grupos, 71 servicios comprobados); WMS, WMTS y WFS; aviso ⚠ en servicios pesados | TFM + petición |
 | 4.4 | Recorte previo por capa, buffer o BBOX | TFM |
 | 4.5 | Plantilla de composición `.qpt` | TFM |
 | 4.6 | Estadísticas de las capas seleccionadas | TFM |

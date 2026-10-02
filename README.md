@@ -32,6 +32,10 @@ Lo más sencillo: crea la conexión en QGIS (botón **+**) y marca sus capas con
 Para ampliar el catálogo del plugin, edita `services.json`: cada grupo tiene `nombre` y `servicios`; cada servicio, `name`, `url`,
 `type` (`wms`, `wmts` o `wfs`) y opcionalmente `layer` (si se omite, el servicio se despliega para elegir capa).
 
+## Servicios siempre al día
+El plugin comprueba sus servicios una vez por semana (en segundo plano): los que no responden se desactivan temporalmente (⛔),
+corrige solo los cambios de dirección más habituales y descarga la versión más reciente del catálogo publicada en este repositorio.
+
 ## Desarrollo
 Ver [`docs/DESARROLLO.md`](docs/DESARROLLO.md). Prueba rápida desde la consola de Python de QGIS:
 ```python

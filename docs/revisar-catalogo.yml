@@ -1,0 +1,38 @@
+# Revisión mensual del catálogo de servicios (services.json).
+# Si algún servicio deja de responder, abre (o actualiza) una incidencia en el repositorio:
+# GitHub avisa por email al propietario.
+name: Revisar catálogo de servicios
+
+on:
+  schedule:
+    - cron: '17 6 1 * *'   # el día 1 de cada mes a las 06:17 UTC
+  workflow_dispatch:        # y cuando se quiera, desde la pestaña Actions
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Comprobar servicios
+        id: comprobar
+        run: python tools/check_catalog_ci.py
+        continue-on-error: true
+      - name: Abrir o actualizar incidencia si hay problemas
+        if: steps.comprobar.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          titulo="Catálogo: servicios que no responden"
+          numero=$(gh issue list --state open --search "$titulo in:title" --json number --jq '.[0].number')
+          if [ -n "$numero" ]; then
+            gh issue comment "$numero" --body-file informe_catalogo.md
+          else
+            gh issue create --title "$titulo" --body-file informe_catalogo.md
+          fi

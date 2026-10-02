@@ -9,6 +9,7 @@ email     : pgomezlosada@gmail.com
 license   : GNU GPL v2 or later
 """
 
+import datetime
 import os
 import unicodedata
 
@@ -22,6 +23,7 @@ from qgis.PyQt.QtWidgets import QAbstractItemView, QFileDialog, QMenu, QMessageB
 from .core import project as qgis_project
 from .core import services as svc
 from .core.capabilities import detect_type, parse_capabilities
+from .core.health import HealthTask, check_due
 from .core.formats import (
     CONVERT,
     FOLDER,
@@ -126,7 +128,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         menu.addAction("Nueva conexión WFS…", lambda: self.iface.openDataSourceManagerPage('wfs'))
         self.newConnectionButton.setMenu(menu)
         self.newConnectionButton.setPopupMode(self.newConnectionButton.ToolButtonPopupMode.InstantPopup)
-        self.refreshServicesButton.clicked.connect(self.load_services_tree)
+        self.refreshServicesButton.setToolTip("Volver a leer las conexiones y comprobar ahora todos los servicios")
+        self.refreshServicesButton.clicked.connect(lambda: (self.load_services_tree(), self.start_health_check(force=True)))
         self.favoriteButton.clicked.connect(self.toggle_favorite)
         self.servicesFilter.textChanged.connect(self.apply_services_filter)
         self.servicesTree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -134,7 +137,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.favoritesDefault.setChecked(QSettings().value(SETTINGS + 'favorites_default', False, type=bool))
         self.favoritesDefault.toggled.connect(lambda v: QSettings().setValue(SETTINGS + 'favorites_default', v))
         self.pending = {}  #Peticiones GetCapabilities en curso (se guardan para que no se eliminen antes de tiempo)
+        self.health_task = None  #Comprobación automática de servicios en curso
         self.load_services_tree()
+        QTimer.singleShot(3000, self.start_health_check)  #Unos segundos después de abrir el panel (si toca: una vez por semana)
         self.apply_favorites_default()
         self.load_last_crs()
         self.selectProjection.crsChanged.connect(self.remember_crs)
@@ -378,13 +383,33 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def _add_service_node(self, parent, service):
         """Una capa concreta (casilla) o un servicio completo (desplegable para ver sus capas)."""
+        estado = self.health.get('servicios', {}).get(service.key())
+        if estado and estado.get('ok') and estado.get('url') and estado['url'] != service.url:
+            original = service.key()
+            service = svc.Service.from_dict({**service.to_dict(), 'url': estado['url']})  #Dirección corregida automáticamente
+            self.health.setdefault('servicios', {})[service.key()] = {**estado, 'original': original}
         icono = SERVICE_ICONS.get(service.type, '/mIconWms.svg')
         if service.layer:
-            return self._node(parent, service.name, 'capa', service, icono, checkable=True)
-        return self._node(parent, service.name, 'servicio', service, icono)
+            item = self._node(parent, service.name, 'capa', service, icono, checkable=True)
+        else:
+            item = self._node(parent, service.name, 'servicio', service, icono)
+        estado = self.health.get('servicios', {}).get(service.key())
+        if estado and not estado.get('ok'):  #Servicio caído en la última comprobación: desactivado temporalmente
+            if item.data(0, NODE_ROLE) == 'capa':
+                item.setCheckState(0, Qt.CheckState.Unchecked)
+            item.setDisabled(True)
+            item.setText(0, f"⛔ {service.name}")
+            item.setToolTip(0, item.toolTip(0) + f"\n⛔ No respondía en la comprobación del {self.health.get('fecha', '')}: "
+                                                  f"{estado.get('detalle', '')}\nSe volverá a comprobar automáticamente (o pulsa ⟳).")
+        if service.heavy:  #Aviso: descarga muchos datos (conviene usarlo con una zona de trabajo)
+            item.setText(0, f"{service.name}  ⚠")
+            item.setToolTip(0, item.toolTip(0) + "\n⚠ Servicio pesado: descarga muchos datos y puede ralentizar QGIS.\n"
+                                                  "Úsalo en proyectos de una zona concreta.")
+        return item
 
     def load_services_tree(self):
         """Rellena el árbol de servicios: ★ Favoritos, Mis conexiones de QGIS y Catálogo ProjectBuilder."""
+        self.health = svc.load_health(svc.health_path())  #Resultado de la última comprobación automática
         marcadas = {s.key() for s in self.selected_services()} if self.servicesTree.topLevelItemCount() else set()
         self.servicesTree.clear()
         try:
@@ -412,7 +437,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         catalogo = self._root("Catálogo ProjectBuilder")
         try:
-            for nombre, servicios in svc.load_catalog():
+            for nombre, servicios in svc.load_catalog(svc.best_catalog_path()):  #El más reciente: el del plugin o el de GitHub
                 grupo = self._node(catalogo, nombre, 'grupo', icon='/mIconFolder.svg')
                 for servicio in servicios:
                     self._add_service_node(grupo, servicio)
@@ -434,7 +459,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         servicio = svc.Service.from_dict(item.data(0, SERVICE_ROLE))
         self._node(item, "Cargando capas…", 'aviso').setDisabled(True)
         peticion = QNetworkRequest(QUrl(svc.capabilities_url(servicio.url, servicio.type)))
-        peticion.setTransferTimeout(20000)  #20 s como máximo: un servidor caído no deja el panel esperando
+        peticion.setTransferTimeout(45000)  #45 s como máximo (algunos, como el IGME, tardan más de 20 s): no bloquea, es en segundo plano
         if servicio.authcfg:
             QgsApplication.authManager().updateNetworkRequest(peticion, servicio.authcfg)
         respuesta = QgsNetworkAccessManager.instance().get(peticion)
@@ -469,6 +494,42 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._mark_favorites()
         self.apply_services_filter(self.servicesFilter.text())
 
+    def start_health_check(self, force=False):
+        """
+        Comprueba en segundo plano el catálogo y los favoritos (como mucho una vez por semana, o al pulsar ⟳)
+        y descarga el catálogo más reciente de GitHub. No bloquea QGIS.
+        """
+        if self.health_task is not None or (not force and not check_due(self.health)):
+            return
+        try:
+            servicios = [s for _, lista in svc.load_catalog(svc.best_catalog_path()) for s in lista]
+        except svc.ServicesError:
+            servicios = []
+        self.health_task = HealthTask(servicios + list(self.favorites))
+        self.health_task.taskCompleted.connect(self._health_finished)
+        self.health_task.taskTerminated.connect(lambda: setattr(self, 'health_task', None))
+        QgsApplication.taskManager().addTask(self.health_task)
+
+    def _health_finished(self):
+        task, self.health_task = self.health_task, None
+        svc.save_health({'fecha': datetime.date.today().isoformat(), 'servicios': task.resultados}, svc.health_path())
+        avisos = []
+        if task.catalogo_remoto:  #Catálogo de GitHub: se guarda solo si es más reciente y se puede leer entero
+            destino = os.path.join(svc.profile_dir(), 'services_remoto.json')
+            anterior = svc.catalog_version(svc.best_catalog_path())
+            os.makedirs(svc.profile_dir(), exist_ok=True)
+            with open(destino, 'wb') as f:
+                f.write(task.catalogo_remoto)
+            if svc.catalog_version(destino) > anterior and svc.best_catalog_path() == destino:
+                avisos.append(f"Catálogo de servicios actualizado (versión {svc.catalog_version(destino)})")
+        caidos = [f.name for f in self.favorites if not task.resultados.get(f.key(), {}).get('ok', True)]
+        if caidos:
+            self.iface.messageBar().pushMessage("ProjectBuilder", "Favoritos que no responden ahora mismo: " + ", ".join(caidos),
+                                                level=Qgis.MessageLevel.Warning, duration=15)
+        if avisos:
+            self.iface.messageBar().pushMessage("ProjectBuilder", " · ".join(avisos), level=Qgis.MessageLevel.Info, duration=10)
+        self.load_services_tree()
+
     def _service_leaves(self, parent=None):
         """Todas las capas (con casilla) del árbol de servicios."""
         parent = parent or self.servicesTree.invisibleRootItem()
@@ -484,7 +545,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         """Capas de servicios marcadas (sin repetir: una capa puede estar en Favoritos y en su servicio)."""
         vistos, servicios = set(), []
         for item in self._service_leaves():
-            if item.checkState(0) == Qt.CheckState.Checked:
+            if item.checkState(0) == Qt.CheckState.Checked and not item.isDisabled():
                 servicio = svc.Service.from_dict(item.data(0, SERVICE_ROLE))
                 if servicio.key() not in vistos:
                     vistos.add(servicio.key())
