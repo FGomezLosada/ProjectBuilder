@@ -4,8 +4,8 @@ qgisMinimumVersion=3.34
 qgisMaximumVersion=4.99
 supportsQt6=True
 description=Crea un proyecto de QGIS con una selección previa de capas y servicios web (WMS, WMTS, WFS)
-about=Genera un proyecto de QGIS a partir de una serie de parámetros: origen, selección y destino de las capas; servicios web (favoritos, conexiones de QGIS y catálogo de servicios públicos españoles); nombre, SRC y carpeta del proyecto. Las capas se copian a un GeoPackage único, un GeoPackage por capa o su formato original, con reproyección opcional.
-version=0.5.0
+about=Genera un proyecto de QGIS a partir de una serie de parámetros: origen, selección y destino de las capas; servicios web (favoritos, conexiones de QGIS y catálogo de servicios públicos españoles); nombre, SRC y carpeta del proyecto. Las capas se copian a un GeoPackage único, un GeoPackage por capa o su formato original, con reproyección opcional y recorte por una zona de trabajo. Permite añadir composiciones de impresión y guardar configuraciones para repetirlas con un clic.
+version=0.6.0
 author=Francisco Gómez Losada
 email=pgomezlosada@gmail.com
 
@@ -14,13 +14,14 @@ repository=https://github.com/FGomezLosada/ProjectBuilder
 homepage=https://github.com/FGomezLosada/ProjectBuilder
 
 changelog=
+    0.6.0 - Zona de trabajo: recorte de todas las capas por una capa de polígonos (o sus elementos seleccionados) o un rectángulo, con margen en metros; el proyecto se abre en la zona. Composiciones de impresión del proyecto abierto o de plantillas .qpt, con los mapas centrados en la zona. Configuraciones guardadas para rellenar el panel con un clic. Corrige un cierre de QGIS 4 al quitar capas con el panel abierto.
     0.5.0 - Salida a un GeoPackage único (por defecto), uno por capa o formato original. Más formatos (GeoJSON, KML, FlatGeobuf, ASC...). Varias carpetas de origen. Reproyección opcional. Panel con secciones plegables, filtro, resumen en vivo e iconos nativos. Servicios WMS, WMTS y WFS: favoritos, conexiones de QGIS y catálogo con 71 servicios. Revisión automática semanal de los servicios y catálogo actualizable desde GitHub.
     0.4.0 - Lógica separada en core/, exportación en segundo plano con progreso, árbol con casillas, proyecto .qgz con rutas relativas, botón para abrir el proyecto, servicios en services.json y proyectos solo con WMS.
     0.3.0 - Correcciones: reproyección vectorial real, protección de datos de origen, GeoPackage multicapa, extensiones en mayúsculas, selección en el árbol y copia de estilos .qml.
     0.2.0 - Compatibilidad con QGIS 3.34+ y QGIS 4 (Qt6). Renombrado interno a project_builder.
     0.1   - Versión inicial (TFM, 2023).
 
-tags=project, layers, wms, wmts, wfs, geopackage
+tags=project, layers, wms, wmts, wfs, geopackage, clip, layout, print
 category=Plugins
 icon=icon.png
 experimental=True
