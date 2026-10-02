@@ -1,22 +1,247 @@
 {
-  "wms": [
+  "grupos": [
     {
-      "name": "Unidad administrativa",
-      "url": "https://www.ign.es/wms-inspire/unidades-administrativas",
-      "layer": "AU.AdministrativeUnit",
-      "crs": "EPSG:25830"
+      "nombre": "Estatal · IGN y CNIG",
+      "servicios": [
+        {
+          "name": "Mapa base IGN",
+          "url": "https://www.ign.es/wms-inspire/ign-base",
+          "layer": "IGNBaseTodo"
+        },
+        {
+          "name": "Mapa base IGN (teselas, más rápido)",
+          "url": "https://www.ign.es/wmts/ign-base",
+          "layer": "IGNBaseTodo",
+          "type": "wmts",
+          "tilematrixset": "GoogleMapsCompatible"
+        },
+        {
+          "name": "Ortofoto PNOA máxima actualidad",
+          "url": "https://www.ign.es/wms-inspire/pnoa-ma",
+          "layer": "OI.OrthoimageCoverage"
+        },
+        {
+          "name": "Ortofoto PNOA (teselas, más rápido)",
+          "url": "https://www.ign.es/wmts/pnoa-ma",
+          "layer": "OI.OrthoimageCoverage",
+          "type": "wmts",
+          "tilematrixset": "GoogleMapsCompatible",
+          "format": "image/jpeg"
+        },
+        {
+          "name": "Ortofotos PNOA históricas",
+          "url": "https://www.ign.es/wms/pnoa-historico"
+        },
+        {
+          "name": "Mapa topográfico (MTN ráster)",
+          "url": "https://www.ign.es/wms-inspire/mapa-raster",
+          "layer": "mtn_rasterizado"
+        },
+        {
+          "name": "Unidades administrativas",
+          "url": "https://www.ign.es/wms-inspire/unidades-administrativas",
+          "layer": "AU.AdministrativeUnit"
+        },
+        {
+          "name": "Límites administrativos",
+          "url": "https://www.ign.es/wms-inspire/unidades-administrativas",
+          "layer": "AU.AdministrativeBoundary"
+        },
+        {
+          "name": "Unidades administrativas (WFS, vectorial)",
+          "url": "https://www.ign.es/wfs-inspire/unidades-administrativas",
+          "layer": "au:AdministrativeUnit",
+          "type": "wfs"
+        },
+        {
+          "name": "Nombres geográficos (topónimos)",
+          "url": "https://www.ign.es/wms-inspire/ngbe",
+          "layer": "GN.GeographicalNames"
+        },
+        {
+          "name": "Cuadrículas MTN y UTM",
+          "url": "https://www.ign.es/wms-inspire/cuadriculas"
+        },
+        {
+          "name": "Modelo digital del terreno",
+          "url": "https://servicios.idee.es/wms-inspire/mdt",
+          "layer": "EL.ElevationGridCoverage"
+        },
+        {
+          "name": "Curvas de nivel",
+          "url": "https://servicios.idee.es/wms-inspire/mdt",
+          "layer": "EL.ContourLine"
+        },
+        {
+          "name": "Ocupación del suelo",
+          "url": "https://servicios.idee.es/wms-inspire/ocupacion-suelo"
+        },
+        {
+          "name": "Hidrografía",
+          "url": "https://servicios.idee.es/wms-inspire/hidrografia"
+        },
+        {
+          "name": "Redes de transporte",
+          "url": "https://servicios.idee.es/wms-inspire/transportes"
+        },
+        {
+          "name": "Direcciones y códigos postales (CartoCiudad)",
+          "url": "https://www.cartociudad.es/wms-inspire/direcciones-ccpp"
+        }
+      ]
     },
     {
-      "name": "Nombres geográficos",
-      "url": "https://www.ign.es/wms-inspire/ngbe",
-      "layer": "GN.GeographicalNames",
-      "crs": "EPSG:25830"
+      "nombre": "Estatal · Catastro",
+      "servicios": [
+        {
+          "name": "Catastro",
+          "url": "https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx",
+          "layer": "Catastro"
+        },
+        {
+          "name": "Parcelas catastrales (INSPIRE)",
+          "url": "https://ovc.catastro.meh.es/cartografia/INSPIRE/spadgcwms.aspx",
+          "layer": "CP.CadastralParcel"
+        },
+        {
+          "name": "Edificios (INSPIRE)",
+          "url": "https://ovc.catastro.meh.es/cartografia/INSPIRE/spadgcwms.aspx",
+          "layer": "BU.Building"
+        },
+        {
+          "name": "Parcelas catastrales (WFS, vectorial)",
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx",
+          "layer": "cp:CadastralParcel",
+          "type": "wfs"
+        },
+        {
+          "name": "Edificios (WFS, vectorial)",
+          "url": "https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx",
+          "layer": "bu:Building",
+          "type": "wfs"
+        }
+      ]
     },
     {
-      "name": "Ortoimagen PNOA máxima actualidad",
-      "url": "https://www.ign.es/wms-inspire/pnoa-ma",
-      "layer": "OI.OrthoimageCoverage",
-      "crs": "EPSG:25830"
+      "nombre": "Estatal · Geología (IGME)",
+      "servicios": [
+        {
+          "name": "Mapa geológico continuo 1:50.000 (GEODE)",
+          "url": "https://mapas.igme.es/gis/services/Cartografia_Geologica/IGME_Geode_50/MapServer/WMSServer"
+        },
+        {
+          "name": "Mapa geológico 1:50.000 (MAGNA)",
+          "url": "https://mapas.igme.es/gis/services/Cartografia_Geologica/IGME_MAGNA_50/MapServer/WMSServer"
+        }
+      ]
+    },
+    {
+      "nombre": "Andalucía",
+      "servicios": [
+        {
+          "name": "Mapa de Andalucía (IDEAndalucía)",
+          "url": "https://www.ideandalucia.es/services/andalucia/wms"
+        },
+        {
+          "name": "Mapa topográfico ráster 1:10.000",
+          "url": "https://www.ideandalucia.es/services/toporaster10/wms",
+          "layer": "toporaster10"
+        }
+      ]
+    },
+    {
+      "nombre": "Canarias",
+      "servicios": [
+        {
+          "name": "Ortofoto (GRAFCAN)",
+          "url": "https://idecan1.grafcan.es/ServicioWMS/OrtoExpress",
+          "layer": "ortoexpress"
+        }
+      ]
+    },
+    {
+      "nombre": "Castilla y León",
+      "servicios": [
+        {
+          "name": "Mapa de Castilla y León",
+          "url": "https://idecyl.jcyl.es/geoserver/ows",
+          "layer": "mapacyl:MapaCyL"
+        }
+      ]
+    },
+    {
+      "nombre": "Cataluña",
+      "servicios": [
+        {
+          "name": "Ortofoto vigente (ICGC)",
+          "url": "https://geoserveis.icgc.cat/servei/catalunya/orto-territorial/wms",
+          "layer": "ortofoto_color_vigent"
+        },
+        {
+          "name": "Mapa topográfico (ICGC)",
+          "url": "https://geoserveis.icgc.cat/servei/catalunya/mapa-base/wms",
+          "layer": "topografic"
+        }
+      ]
+    },
+    {
+      "nombre": "Comunitat Valenciana",
+      "servicios": [
+        {
+          "name": "Ortofoto 2020 (ICV)",
+          "url": "https://terramapas.icv.gva.es/0202_2020CVAL0025"
+        }
+      ]
+    },
+    {
+      "nombre": "Illes Balears",
+      "servicios": [
+        {
+          "name": "Ortofoto (IDEIB)",
+          "url": "https://ideib.caib.es/geoserveis/services/imatges/GOIB_Orto_IB/MapServer/WMSServer"
+        }
+      ]
+    },
+    {
+      "nombre": "La Rioja",
+      "servicios": [
+        {
+          "name": "Cartografía de La Rioja (IDERioja)",
+          "url": "https://ogc.larioja.org/wms/request.php"
+        }
+      ]
+    },
+    {
+      "nombre": "Navarra",
+      "servicios": [
+        {
+          "name": "IDENA (servicios de Navarra)",
+          "url": "https://idena.navarra.es/ogc/wms"
+        }
+      ]
+    },
+    {
+      "nombre": "País Vasco",
+      "servicios": [
+        {
+          "name": "Ortofoto más actual (geoEuskadi)",
+          "url": "https://www.geo.euskadi.eus/WMS_ORTOARGAZKIAK",
+          "layer": "ORTO_EGUNERATUENA_MAS_ACTUALIZADA"
+        },
+        {
+          "name": "Cartografía (geoEuskadi)",
+          "url": "https://www.geo.euskadi.eus/WMS_KARTOGRAFIA"
+        }
+      ]
+    },
+    {
+      "nombre": "Región de Murcia",
+      "servicios": [
+        {
+          "name": "Servicios de la Región de Murcia",
+          "url": "https://mapas-gis-inter.carm.es/geoserver/ows"
+        }
+      ]
     }
   ]
 }

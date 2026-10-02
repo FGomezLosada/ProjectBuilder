@@ -95,14 +95,48 @@
         <!-- ============================== 2 · SERVICIOS ============================== -->
         <item>
          <widget class="QgsCollapsibleGroupBox" name="addWMS">
-          <property name="title"><string>2 · Servicios web (WMS)</string></property>
-          <property name="toolTip"><string>Marca la casilla para añadir servicios WMS al proyecto</string></property>
+          <property name="title"><string>2 · Servicios web (WMS, WMTS, WFS)</string></property>
+          <property name="toolTip"><string>Marca la casilla para añadir servicios web al proyecto</string></property>
           <property name="checkable"><bool>true</bool></property>
           <property name="checked"><bool>false</bool></property>
           <property name="saveCollapsedState"><bool>true</bool></property>
           <layout class="QVBoxLayout" name="servicesLayout">
            <item>
-            <widget class="QgsCheckableComboBox" name="wmsComboBox"/>
+            <layout class="QHBoxLayout" name="servicesButtonsLayout">
+             <item>
+              <widget class="QgsFilterLineEdit" name="servicesFilter">
+               <property name="placeholderText"><string>Buscar servicios o capas…</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QToolButton" name="favoriteButton">
+               <property name="text"><string>★</string></property>
+               <property name="toolTip"><string>Añadir o quitar de Favoritos la capa en la que has hecho clic</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QToolButton" name="newConnectionButton">
+               <property name="toolTip"><string>Nueva conexión WMS/WMTS o WFS (abre el diálogo de QGIS)</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QToolButton" name="refreshServicesButton">
+               <property name="toolTip"><string>Volver a leer las conexiones de QGIS y el catálogo</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QTreeWidget" name="servicesTree">
+             <property name="minimumSize"><size><width>0</width><height>180</height></size></property>
+             <property name="headerHidden"><bool>true</bool></property>
+             <column><property name="text"><string>Servicios</string></property></column>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="favoritesDefault">
+             <property name="text"><string>Marcar mis favoritos al empezar un proyecto</string></property>
+            </widget>
            </item>
           </layout>
          </widget>
@@ -198,11 +232,6 @@ Desmarcado: cada capa se copia en su SRC original; el proyecto usa este SRC y QG
   <customwidget>
    <class>QgsFilterLineEdit</class>
    <extends>QLineEdit</extends>
-   <header>qgis.gui</header>
-  </customwidget>
-  <customwidget>
-   <class>QgsCheckableComboBox</class>
-   <extends>QComboBox</extends>
    <header>qgis.gui</header>
   </customwidget>
   <customwidget>

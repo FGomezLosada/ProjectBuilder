@@ -18,6 +18,7 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 | Orígenes de capas | Varias carpetas a la vez (raíces del árbol). Cada carpeta de origen es un grupo del proyecto; en los modos de ficheros sueltos, también una subcarpeta |
 | Valores recordados entre sesiones | Últimas carpetas de capas y de proyecto, último SRC (QSettings, prefijo `project_builder/`) |
 | SRC | Casilla "Reproyectar todas las capas a este SRC" (marcada por defecto). Desmarcada: cada capa conserva su SRC original y el proyecto reproyecta al vuelo |
+| Servicios web | Árbol con ★ Favoritos (perfil del usuario: `<perfil QGIS>/project_builder/favoritos.json`), Mis conexiones de QGIS (solo lectura, agrupadas por tipo) y Catálogo (`services.json`, con grupos). Las capas de un servicio se piden al desplegarlo (GetCapabilities asíncrono, 20 s máx.) |
 | Rama de trabajo | `fase4` (v0.4.0 publicada en `main` con etiqueta) |
 
 ## Convenciones de código
@@ -43,6 +44,7 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 - [x] Quitar `resources.py` (pyrcc5 no existe en Qt6) → rutas de fichero
 - [x] `metadata.txt`: `qgisMinimumVersion=3.34`, `supportsQt6=True`
 - [x] En los `.ui`, todo `spacer` necesita `sizeHint` (Qt6/PyQt6 falla sin él; Qt5 lo tolera)
+- [x] **Nunca usar un enum de Qt directamente en un `if`**: en PyQt6 todos valen `True` (p. ej. `QNetworkReply.NetworkError.NoError`). Comparar siempre: `if reply.error() != QNetworkReply.NetworkError.NoError:`
 - Comprobar un `.ui` con Qt6 sin abrir QGIS 4: cargarlo con `PyQt6.uic.loadUiType` (simulando `qgis.gui`)
 
 Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fases 1-3, v0.4.0).
@@ -67,7 +69,7 @@ Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fases 1-3, v0.4.0).
 ```
 __init__.py / project_builder.py    entrada del plugin (menú, botón, panel)
 project_builder_dockwidget.py(.ui)  interfaz (el .ui se edita con Qt Designer: secciones plegables QgsCollapsibleGroupBox)
-core/          lógica sin interfaz: formats, scanner, exporter, project, task, services
+core/          lógica sin interfaz: formats, scanner, exporter, project, task, services, capabilities
 services.json  servicios WMS
 tests/         datos de prueba y scripts para la consola de QGIS
 ```
@@ -96,7 +98,7 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 |---|---|---|
 | 4.1 ✅ | Búsqueda/filtrado en el árbol + capas internas de GeoPackage como hijos | TFM + prueba QGIS 4 |
 | 4.2 ✅ | Más formatos, formato de salida a elegir (incl. un solo GeoPackage) y varias carpetas de origen | TFM + petición |
-| 4.3 | Catálogo amplio de WMS agrupado por ámbito (estatal y comunidades) + WFS/WMTS | TFM + petición |
+| 4.3 🟡 | Servicios web: ★ Favoritos + conexiones de QGIS + catálogo por grupos; WMS, WMTS y WFS (parte 1 ✅; parte 2: ampliar catálogo) | TFM + petición |
 | 4.4 | Recorte previo por capa, buffer o BBOX | TFM |
 | 4.5 | Plantilla de composición `.qpt` | TFM |
 | 4.6 | Estadísticas de las capas seleccionadas | TFM |

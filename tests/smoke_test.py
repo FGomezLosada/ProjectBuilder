@@ -16,7 +16,11 @@ from qgis.core import Qgis, QgsCoordinateReferenceSystem, QgsLayerTreeGroup, Qgs
 from qgis.PyQt.QtCore import Qt
 
 qgis.utils.reloadPlugin('project_builder')
+import project_builder.core.services as svc_module  # noqa: E402
 import project_builder.project_builder_dockwidget as dock_module  # noqa: E402
+
+FAVORITOS = tempfile.mkdtemp(prefix="pb_fav_") + "/favoritos.json"
+svc_module.favorites_path = lambda: FAVORITOS  # favoritos de prueba: no se tocan los del usuario
 
 DATA = os.path.join(os.path.dirname(dock_module.__file__), 'tests', 'data').replace('\\', '/')
 CARPETAS = (DATA + '/vectorial', DATA + '/raster')
@@ -101,10 +105,24 @@ avisos.clear()
 dw.treeWidget.setCurrentItem(dw.treeWidget.topLevelItem(1).child(0))  # una capa de la carpeta raster
 dw.remove_current_folder()
 tras_quitar = [dw.treeWidget.topLevelItem(i).text(0) for i in range(dw.treeWidget.topLevelItemCount())]
+# Servicios web: tres bloques, catálogo y favoritos
+raices_serv = [dw.servicesTree.topLevelItem(i).text(0) for i in range(dw.servicesTree.topLevelItemCount())]
+capas_cat = [it for it in dw._service_leaves() if it.text(0) == 'Mapa base IGN']
+dw.servicesTree.setCurrentItem(capas_cat[0])
+dw.toggle_favorite()  # ★ añadir
+fav_guardado = [s.name for s in svc_module.load_favorites(FAVORITOS)]
+fav_arbol = [dw.servicesTree.topLevelItem(0).child(i).text(0) for i in range(dw.servicesTree.topLevelItem(0).childCount())]
+for it in dw._service_leaves():
+    if it.text(0) in ('Mapa base IGN', 'Catastro'):
+        it.setCheckState(0, Qt.CheckState.Checked)  # 'Mapa base IGN' está dos veces (favorito y catálogo): cuenta una
+marcados = [s.name for s in dw.selected_services()]
+dw.servicesTree.setCurrentItem(dw.servicesTree.topLevelItem(0).child(0))
+dw.toggle_favorite()  # ★ quitar
+fav_quitado = svc_module.load_favorites(FAVORITOS)
 dw.nameProject.setText("x")
 dw.addWMS.setChecked(True)
 dw.reset_form()
-limpio = dw.treeWidget.topLevelItemCount() == 0 and not dw.nameProject.text() and not dw.addWMS.isChecked()
+limpio = dw.treeWidget.topLevelItemCount() == 0 and not dw.nameProject.text() and not dw.addWMS.isChecked() and not dw.selected_services()
 dw.deleteLater()
 
 # 3. Solo una capa interna del GeoPackage
@@ -152,7 +170,11 @@ checks = {
     "[conservar] 8 capas válidas": len(capas4) == 8 and all(lyr.isValid() for lyr in capas4),
     "[conservar] .shp .geojson .kml .asc .tif se mantienen": ext4 == ['.asc', '.geojson', '.gpkg', '.kml', '.shp', '.tif'],
     "[conservar] estilo naranja en zonas_4326.shp": [_color(lyr) for lyr in capas4 if lyr.source().split('|')[0].endswith('zonas_4326.shp')] == ['#ff7f00'],
-    "services.json leído (3 WMS)": len(dock_module.load_services()) == 3,
+    "[servicios] tres bloques (Favoritos, Mis conexiones, Catálogo)": raices_serv == ['★ Favoritos', 'Mis conexiones de QGIS', 'Catálogo ProjectBuilder'],
+    "[servicios] catálogo con grupos (estatal y comunidades)": len(svc_module.load_catalog()) >= 10,
+    "[servicios] ★ añade a favoritos y se guarda": fav_guardado == ['Mapa base IGN'] and fav_arbol == ['Mapa base IGN'],
+    "[servicios] una capa marcada dos veces cuenta una": sorted(marcados) == ['Catastro', 'Mapa base IGN'],
+    "[servicios] ★ quita de favoritos": fav_quitado == [],
 }
 
 print("=" * 60)

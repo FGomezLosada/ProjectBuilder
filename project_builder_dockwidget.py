@@ -12,12 +12,16 @@ license   : GNU GPL v2 or later
 import os
 import unicodedata
 
-from qgis.core import Qgis, QgsApplication, QgsCoordinateReferenceSystem, QgsProject
+from qgis.core import Qgis, QgsApplication, QgsCoordinateReferenceSystem, QgsNetworkAccessManager, QgsProject
 from qgis.PyQt import QtWidgets, uic
-from qgis.PyQt.QtCore import QSettings, Qt, QTimer
-from qgis.PyQt.QtWidgets import QAbstractItemView, QFileDialog, QMessageBox, QPushButton, QTreeWidgetItem
+from qgis.PyQt.QtCore import QSettings, Qt, QTimer, QUrl
+from qgis.PyQt.QtGui import QFont
+from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
+from qgis.PyQt.QtWidgets import QAbstractItemView, QFileDialog, QMenu, QMessageBox, QPushButton, QTreeWidgetItem
 
 from .core import project as qgis_project
+from .core import services as svc
+from .core.capabilities import detect_type, parse_capabilities
 from .core.formats import (
     CONVERT,
     FOLDER,
@@ -32,7 +36,6 @@ from .core.formats import (
     vector_sublayers,
 )
 from .core.scanner import LINE, POINT, POLYGON, TABLE, scan_folder
-from .core.services import ServicesError, load_services
 from .core.task import ExportTask, Job
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -49,10 +52,13 @@ ICONS = {
     POLYGON: '/mIconPolygonLayer.svg',
     TABLE: '/mIconVector.svg',  #Geometría desconocida o sin geometría: icono genérico de capa vectorial
 }
+SERVICE_ICONS = {svc.WMS: '/mIconWms.svg', svc.WMTS: '/mIconWms.svg', svc.WFS: '/mIconVector.svg'}
 MODE_NAMES = {SINGLE: "un solo GeoPackage", CONVERT: "un GeoPackage por capa", KEEP: "formato original"}
 PATH_ROLE = Qt.ItemDataRole.UserRole  #Donde se guarda la ruta en cada elemento del árbol
 KIND_ROLE = Qt.ItemDataRole.UserRole + 1  #Tipo de elemento (carpeta, vectorial, multicapa, ráster)
 LAYER_ROLE = Qt.ItemDataRole.UserRole + 2  #Nombre de la capa interna (solo en las capas de un fichero multicapa)
+SERVICE_ROLE = Qt.ItemDataRole.UserRole + 3  #Servicio web (diccionario) de cada elemento del árbol de servicios
+NODE_ROLE = Qt.ItemDataRole.UserRole + 4  #Tipo de nodo del árbol de servicios: raíz, grupo, servicio (desplegable) o capa
 SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
 
 
@@ -113,7 +119,23 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.createProject.clicked.connect(lambda: self.create_project())  #lambda: la señal clicked envía un True/False que no queremos recibir
         self.treeWidget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)  #Las capas se eligen con las casillas, no seleccionando filas
         self.treeWidget.clear()
-        self.load_wms_combo()  #Llamar a funcion añade wms a combo al inicio
+        self.newConnectionButton.setIcon(QgsApplication.getThemeIcon('/symbologyAdd.svg'))
+        self.refreshServicesButton.setText("⟳")
+        menu = QMenu(self.newConnectionButton)  #Abre el diálogo de QGIS para crear una conexión nueva
+        menu.addAction("Nueva conexión WMS / WMTS…", lambda: self.iface.openDataSourceManagerPage('wms'))
+        menu.addAction("Nueva conexión WFS…", lambda: self.iface.openDataSourceManagerPage('wfs'))
+        self.newConnectionButton.setMenu(menu)
+        self.newConnectionButton.setPopupMode(self.newConnectionButton.ToolButtonPopupMode.InstantPopup)
+        self.refreshServicesButton.clicked.connect(self.load_services_tree)
+        self.favoriteButton.clicked.connect(self.toggle_favorite)
+        self.servicesFilter.textChanged.connect(self.apply_services_filter)
+        self.servicesTree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.servicesTree.itemExpanded.connect(self.load_service_layers)  #Las capas de un servicio se piden al desplegarlo
+        self.favoritesDefault.setChecked(QSettings().value(SETTINGS + 'favorites_default', False, type=bool))
+        self.favoritesDefault.toggled.connect(lambda v: QSettings().setValue(SETTINGS + 'favorites_default', v))
+        self.pending = {}  #Peticiones GetCapabilities en curso (se guardan para que no se eliminen antes de tiempo)
+        self.load_services_tree()
+        self.apply_favorites_default()
         self.load_last_crs()
         self.selectProjection.crsChanged.connect(self.remember_crs)
 
@@ -123,7 +145,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.summaryTimer.setSingleShot(True)
         self.summaryTimer.setInterval(50)
         self.summaryTimer.timeout.connect(self.update_summary)
-        for senal in (self.treeWidget.itemChanged, self.wmsComboBox.checkedItemsChanged, self.addWMS.toggled,
+        for senal in (self.treeWidget.itemChanged, self.servicesTree.itemChanged, self.addWMS.toggled,
                       self.outputFormat.currentIndexChanged, self.nameProject.textChanged, self.pathFolderProject.textChanged,
                       self.reprojectCheck.toggled, self.selectProjection.crsChanged):
             senal.connect(lambda *args: self.summaryTimer.start())
@@ -155,7 +177,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.outputFormat.setCurrentIndex(0)  #Modo recomendado
         self.reprojectCheck.setChecked(True)
         self.addWMS.setChecked(False)
-        self.wmsComboBox.deselectAllOptions()
+        self.servicesFilter.clear()
+        for item in self._service_leaves():
+            item.setCheckState(0, Qt.CheckState.Unchecked)
+        self.apply_favorites_default()
         self.update_summary()
 
     # ------------------------------------------------------------------ Selección de carpetas
@@ -292,10 +317,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def update_summary(self):
         """Texto bajo el formulario con lo que se va a generar, p. ej. '7 capas · 2 WMS · un solo GeoPackage → ...qgz'."""
         capas = self.count_layers()
-        wms = len(self.wmsComboBox.checkedItems()) if self.addWMS.isChecked() else 0
+        wms = len(self.selected_services()) if self.addWMS.isChecked() else 0
         partes = [f"{capas} capa{'s' if capas != 1 else ''}"]
         if wms:
-            partes.append(f"{wms} WMS")
+            partes.append(f"{wms} servicio{'s' if wms != 1 else ''} web")
         if capas:
             partes.append(MODE_NAMES.get(self.outputFormat.currentData(), ''))
             if self.reprojectCheck.isChecked():  #Deja claro qué se hace con el SRC de las capas
@@ -326,17 +351,194 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             for j in range(raiz.childCount()):  #Las carpetas añadidas (raíces) siempre se ven
                 filtrar(raiz.child(j), not texto)
 
-    # ------------------------------------------------------------------ Servicios WMS
+    # ------------------------------------------------------------------ Servicios web
 
-    def load_wms_combo(self):
-        """Añadir nombres wms a combo (se leen de services.json)"""
-        self.wmsComboBox.clear()
+    def _node(self, parent, text, node, service=None, icon=None, checkable=False):
+        """Crea un elemento del árbol de servicios."""
+        item = QTreeWidgetItem(parent, [text])
+        item.setData(0, NODE_ROLE, node)
+        if service is not None:
+            item.setData(0, SERVICE_ROLE, service.to_dict())
+            item.setToolTip(0, f"{service.type.upper()} · {service.url}" + (f"\nCapa: {service.layer}" if service.layer else ''))
+        if icon:
+            item.setIcon(0, QgsApplication.getThemeIcon(icon))
+        if checkable:
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(0, Qt.CheckState.Unchecked)
+        if node == 'servicio':  #Servicio completo: se muestra la flecha para desplegarlo aunque aún no tenga capas
+            item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+        return item
+
+    def _root(self, text):
+        raiz = self._node(self.servicesTree, text, 'raiz')
+        fuente = QFont(raiz.font(0))
+        fuente.setBold(True)
+        raiz.setFont(0, fuente)
+        return raiz
+
+    def _add_service_node(self, parent, service):
+        """Una capa concreta (casilla) o un servicio completo (desplegable para ver sus capas)."""
+        icono = SERVICE_ICONS.get(service.type, '/mIconWms.svg')
+        if service.layer:
+            return self._node(parent, service.name, 'capa', service, icono, checkable=True)
+        return self._node(parent, service.name, 'servicio', service, icono)
+
+    def load_services_tree(self):
+        """Rellena el árbol de servicios: ★ Favoritos, Mis conexiones de QGIS y Catálogo ProjectBuilder."""
+        marcadas = {s.key() for s in self.selected_services()} if self.servicesTree.topLevelItemCount() else set()
+        self.servicesTree.clear()
         try:
-            self.services = load_services()
-        except ServicesError as e:  #Si services.json tiene un error, se avisa y el plugin sigue funcionando sin WMS
-            self.services = {}
+            self.favorites = svc.load_favorites(svc.favorites_path())
+        except svc.ServicesError as e:
+            self.favorites = []
+            self.iface.messageBar().pushMessage("ProjectBuilder", str(e), level=Qgis.MessageLevel.Warning, duration=10)
+
+        favoritos = self._root("★ Favoritos")
+        for servicio in self.favorites:
+            self._add_service_node(favoritos, servicio)
+        if not self.favorites:
+            self._node(favoritos, "Haz clic en una capa y pulsa ★ para añadirla aquí", 'aviso').setDisabled(True)
+
+        conexiones = self._root("Mis conexiones de QGIS")
+        lista = svc.qgis_connections()
+        for titulo, tipos in (("WMS / WMTS", (svc.WMS, svc.WMTS)), ("WFS", (svc.WFS,))):  #Agrupadas por tipo: puede haber muchas
+            del_tipo = sorted((s for s in lista if s.type in tipos), key=lambda s: s.name.lower())
+            if del_tipo:
+                grupo = self._node(conexiones, f"{titulo} ({len(del_tipo)})", 'grupo', icon='/mIconFolder.svg')
+                for servicio in del_tipo:
+                    self._add_service_node(grupo, servicio)
+        if not lista:
+            self._node(conexiones, "No hay conexiones: usa el botón + para crear una", 'aviso').setDisabled(True)
+
+        catalogo = self._root("Catálogo ProjectBuilder")
+        try:
+            for nombre, servicios in svc.load_catalog():
+                grupo = self._node(catalogo, nombre, 'grupo', icon='/mIconFolder.svg')
+                for servicio in servicios:
+                    self._add_service_node(grupo, servicio)
+        except svc.ServicesError as e:  #Si services.json tiene un error, se avisa y el plugin sigue funcionando sin catálogo
             self.iface.messageBar().pushMessage("ProjectBuilder", str(e), level=Qgis.MessageLevel.Critical, duration=0)
-        self.wmsComboBox.addItems(list(self.services.keys()))
+
+        favoritos.setExpanded(True)
+        conexiones.setExpanded(True)
+        for item in self._service_leaves():  #Se conservan las capas que ya estaban marcadas
+            if svc.Service.from_dict(item.data(0, SERVICE_ROLE)).key() in marcadas:
+                item.setCheckState(0, Qt.CheckState.Checked)
+        self._mark_favorites()
+        self.apply_services_filter(self.servicesFilter.text())
+
+    def load_service_layers(self, item):
+        """Al desplegar un servicio, se piden sus capas al servidor (GetCapabilities) sin bloquear QGIS."""
+        if item.data(0, NODE_ROLE) != 'servicio' or item.childCount():
+            return
+        servicio = svc.Service.from_dict(item.data(0, SERVICE_ROLE))
+        self._node(item, "Cargando capas…", 'aviso').setDisabled(True)
+        peticion = QNetworkRequest(QUrl(svc.capabilities_url(servicio.url, servicio.type)))
+        peticion.setTransferTimeout(20000)  #20 s como máximo: un servidor caído no deja el panel esperando
+        if servicio.authcfg:
+            QgsApplication.authManager().updateNetworkRequest(peticion, servicio.authcfg)
+        respuesta = QgsNetworkAccessManager.instance().get(peticion)
+        self.pending[id(respuesta)] = respuesta
+        respuesta.finished.connect(lambda: self._service_layers_received(item, servicio, respuesta))
+
+    def _service_layers_received(self, item, servicio, respuesta):
+        self.pending.pop(id(respuesta), None)
+        datos = bytes(respuesta.readAll())
+        # Se compara con NoError: en PyQt6 (QGIS 4) los enum siempre valen True en un if, aunque no haya error
+        error = respuesta.errorString() if respuesta.error() != QNetworkReply.NetworkError.NoError else None
+        respuesta.deleteLater()
+        try:
+            item.takeChildren()  #Se quita el "Cargando capas…"
+        except RuntimeError:  #El elemento ya no existe (se ha recargado el árbol mientras tanto)
+            return
+        try:
+            if error:
+                raise ValueError(f"No responde: {error}")
+            tipo = detect_type(datos, servicio.type)  #Una conexión "WMS" de QGIS puede ser un WMTS
+            capas = parse_capabilities(datos, tipo)
+        except ValueError as e:
+            self._node(item, str(e)[:150], 'aviso').setDisabled(True)
+            return
+        for capa in capas:
+            hija = svc.Service(capa['title'], servicio.url, capa['layer'], tipo, format=capa['format'] or servicio.format,
+                               style=capa['style'], tilematrixset=capa['tilematrixset'], authcfg=servicio.authcfg,
+                               crs_list=capa['crs'])
+            self._add_service_node(item, hija)
+        if not capas:
+            self._node(item, "El servicio no ofrece capas", 'aviso').setDisabled(True)
+        self._mark_favorites()
+        self.apply_services_filter(self.servicesFilter.text())
+
+    def _service_leaves(self, parent=None):
+        """Todas las capas (con casilla) del árbol de servicios."""
+        parent = parent or self.servicesTree.invisibleRootItem()
+        hojas = []
+        for i in range(parent.childCount()):
+            hijo = parent.child(i)
+            if hijo.data(0, NODE_ROLE) == 'capa':
+                hojas.append(hijo)
+            hojas += self._service_leaves(hijo)
+        return hojas
+
+    def selected_services(self):
+        """Capas de servicios marcadas (sin repetir: una capa puede estar en Favoritos y en su servicio)."""
+        vistos, servicios = set(), []
+        for item in self._service_leaves():
+            if item.checkState(0) == Qt.CheckState.Checked:
+                servicio = svc.Service.from_dict(item.data(0, SERVICE_ROLE))
+                if servicio.key() not in vistos:
+                    vistos.add(servicio.key())
+                    servicios.append(servicio)
+        return servicios
+
+    def toggle_favorite(self):
+        """Añade a Favoritos (o quita) la capa en la que se ha hecho clic. Se guarda en el perfil de QGIS."""
+        item = self.servicesTree.currentItem()
+        if item is None or item.data(0, NODE_ROLE) != 'capa':
+            return self.warn("Haz clic en una capa de un servicio y pulsa ★")
+        servicio = svc.Service.from_dict(item.data(0, SERVICE_ROLE))
+        claves = [f.key() for f in self.favorites]
+        if servicio.key() in claves:
+            self.favorites.pop(claves.index(servicio.key()))
+        else:
+            self.favorites.append(servicio)
+        svc.save_favorites(self.favorites, svc.favorites_path())
+        self.load_services_tree()
+
+    def _mark_favorites(self):
+        """Las capas que son favoritas se ven en negrita en todo el árbol."""
+        claves = {f.key() for f in self.favorites}
+        for item in self._service_leaves():
+            fuente = QFont(item.font(0))
+            fuente.setBold(svc.Service.from_dict(item.data(0, SERVICE_ROLE)).key() in claves)
+            item.setFont(0, fuente)
+
+    def apply_favorites_default(self):
+        """Si está activada la opción, se marcan los favoritos (y la sección de servicios) al empezar un proyecto."""
+        if not (self.favoritesDefault.isChecked() and self.favorites):
+            return
+        self.addWMS.setChecked(True)
+        raiz = self.servicesTree.topLevelItem(0)  #★ Favoritos
+        for item in self._service_leaves(raiz):
+            item.setCheckState(0, Qt.CheckState.Checked)
+
+    def apply_services_filter(self, texto):
+        """Muestra solo los servicios y capas cuyo nombre contiene el texto."""
+        texto = normalizar(texto.strip())
+
+        def filtrar(item, padre_coincide):
+            coincide = padre_coincide or texto in normalizar(item.text(0))
+            hijos = [filtrar(item.child(i), coincide) for i in range(item.childCount())]
+            visible = coincide or any(hijos)
+            item.setHidden(not visible)
+            if texto and any(hijos):
+                item.setExpanded(True)
+            return visible
+
+        for i in range(self.servicesTree.topLevelItemCount()):
+            raiz = self.servicesTree.topLevelItem(i)
+            for j in range(raiz.childCount()):  #Los tres bloques principales siempre se ven
+                filtrar(raiz.child(j), not texto)
 
     # ------------------------------------------------------------------ Crear proyecto
 
@@ -350,10 +552,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return "No se ha indicado la carpeta del proyecto"
         if os.path.exists(folder_project) and not os.path.isdir(folder_project):
             return "La ruta del proyecto es un fichero, no una carpeta"
-        if self.addWMS.isChecked() and not self.wmsComboBox.checkedItems():
-            return "No ha seleccionado ningún WMS"
+        if self.addWMS.isChecked() and not self.selected_services():
+            return "No has marcado ningún servicio web (o desmarca la sección 2)"
         if not self.selected_sources() and not self.addWMS.isChecked():  #Hace falta al menos una capa o un servicio WMS
-            return "No se ha marcado ninguna capa ni ningún servicio WMS"
+            return "No se ha marcado ninguna capa ni ningún servicio web"
         # Evitar sobrescribir los datos de origen: el proyecto no puede estar en ninguna carpeta de capas ni dentro de ella
         for carpeta in self.source_folders():
             if dentro_de(folder_project, carpeta):
@@ -456,11 +658,12 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             except ValueError as e:
                 errors.append(str(e))
 
-        if self.addWMS.isChecked():  #Si el boton de wms esta activado, se crea el grupo y se añaden los seleccionados
-            group = qgis_project.add_group(project, 'WMS')
-            for wms in self.wmsComboBox.checkedItems():  #Recorrer wms seleccionados y obtener name y url del diccionario
+        servicios = self.selected_services() if self.addWMS.isChecked() else []
+        if servicios:  #Si la sección de servicios está activada, se crea el grupo y se añaden las capas marcadas
+            group = qgis_project.add_group(project, 'Servicios web')
+            for servicio in servicios:
                 try:
-                    qgis_project.add_wms(project, group, wms, self.services[wms].uri())
+                    qgis_project.add_service(project, group, servicio)
                 except ValueError as e:
                     errors.append(str(e))
 

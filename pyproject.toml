@@ -11,4 +11,5 @@ ignore = [
     "E501",  # líneas largas: se permiten por los comentarios en línea
     "N802",  # nombres impuestos por QGIS/Qt (initGui, classFactory, closeEvent...)
     "N999",  # el repo se llama ProjectBuilder; QGIS lo carga como project_builder
+    "SIM108",  # if/else en vez de ternario: más legible
 ]

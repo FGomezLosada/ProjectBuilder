@@ -124,14 +124,18 @@ def add_group(project, group_name):
     return group
 
 
-def add_wms(project, group, name, uri):
+def add_service(project, group, service):
     """
-    Añade un servicio WMS al grupo indicado.
+    Añade una capa de un servicio web (WMS, WMTS o WFS) al grupo indicado.
     Se añade al final (-1) para que el orden sea el mismo que en la lista de servicios.
     """
-    layer = QgsRasterLayer(uri, name, 'wms')
+    uri = service.uri(project.crs().authid())
+    if service.provider() == 'WFS':
+        layer = QgsVectorLayer(uri, service.name, 'WFS')
+    else:
+        layer = QgsRasterLayer(uri, service.name, 'wms')
     if not layer.isValid():
-        raise ValueError(f"El servicio {name} no se ha podido cargar")
+        raise ValueError(f"El servicio {service.name} no se ha podido cargar")
     project.addMapLayer(layer, False)
     _add_to_tree(group, layer, position=-1)
     return layer
