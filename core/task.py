@@ -17,9 +17,10 @@ class Job:
     group: tuple  #Grupos del árbol de capas del proyecto donde irá, p. ej. ('vectorial', 'subcarpeta')
     layers: list = None  #Capas internas a exportar de un fichero multicapa (None = todas)
     tables: dict = None  #Solo en el modo "un solo GeoPackage": {capa de origen: tabla en el GeoPackage}
-    qml: str = None  #Estilo .qml de origen (solo capas de un fichero de una sola capa)
+    qml: str = None  #Estilo .qml a aplicar (capas de un fichero de una sola capa o del proyecto abierto en QGIS)
     clip: bool = True  #Recortar por la zona de trabajo (la propia zona no se recorta)
     zone: bool = False  #Es la capa de la zona de trabajo (va arriba del todo en el proyecto)
+    name: str = None  #Nombre de la capa en el proyecto (las del proyecto abierto conservan el suyo)
 
 
 @dataclass
@@ -31,6 +32,7 @@ class Output:
     tables: list = field(default_factory=list)  #Tablas del GeoPackage común (vacío si es un fichero propio)
     qml: str = None
     zone: bool = False
+    name: str = None
 
 
 class ExportTask(QgsTask):
@@ -70,7 +72,7 @@ class ExportTask(QgsTask):
                     final = export_layer(job.source, job.target, self.crs, feedback=self.feedback, layers=job.layers,
                                          zone=zone, empty=vacias)
                     self.empty += vacias
-                    self.outputs.append(Output(final, job.group, zone=job.zone))  #Ruta final (puede haber cambiado de formato)
+                    self.outputs.append(Output(final, job.group, qml=job.qml, zone=job.zone, name=job.name))  #Ruta final (puede haber cambiado de formato)
             except EmptyLayer:
                 self.empty.append(os.path.splitext(os.path.basename(job.source))[0])  #No es un error: se avisa al final
             except ExportError as e:

@@ -29,6 +29,7 @@ Clase = dock_module.ProjectBuilderDockWidget
 avisos = []
 _originales = {n: getattr(Clase, n) for n in ('warn', 'start_health_check', 'ask_name', 'confirm')}
 Clase.warn = lambda self, msg: avisos.append(msg)
+dock_module.ProjectBuilderDockWidget.load_project_layers = lambda self, *a: None  # sin el bloque del proyecto abierto: no depende de lo que tenga abierto el usuario
 Clase.start_health_check = lambda self, force=False: None  # sin revisar servicios por internet
 Clase.ask_name = lambda self, actual: "Prueba Nerja"
 Clase.confirm = lambda self, pregunta: True

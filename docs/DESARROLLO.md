@@ -80,7 +80,7 @@ tests/         datos de prueba y scripts para la consola de QGIS
 - Para añadir uno: incluir su extensión en VECTOR_EXTENSIONS/RASTER_EXTENSIONS (y en KEEP_* si GDAL lo escribe)
 
 ## Datos de prueba
-`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/config_test.py` (configuraciones guardadas, sin internet), `tests/layout_test.py` (composiciones, sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
+`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/config_test.py` (configuraciones guardadas, sin internet), `tests/layout_test.py` (composiciones, sin internet), `tests/open_project_test.py` (capas del proyecto abierto, sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
 `tests/check_catalog.py` (comprueba que los 71 servicios del catálogo responden y que sus capas existen; ejecutarlo de vez en cuando). También vía MCP de QGIS 3.40.
 Si una prueba larga se lanza por el MCP, conviene hacerlo con `QTimer.singleShot` y guardar la salida en un fichero:
 así la llamada no espera a que termine (el MCP corta a los 60 s).
@@ -131,7 +131,7 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | 4.7 | Conexión a base de datos (PostGIS) como origen de capas | TFM |
 | 4.8 | Estilos `.qml` con símbolos SVG (pendiente de definir) | Word de mejoras |
 | 4.9 ✅ | Configuraciones guardadas: un `.json` por configuración en el perfil (carpetas, capas marcadas, servicios, SRC, formato y zona de trabajo); se elige en un desplegable arriba del panel | Idea aprobada |
-| 4.10 | Origen "capas del proyecto abierto en QGIS" (además de carpetas y BBDD) | Idea |
+| 4.10 ✅ | Capas del proyecto abierto como origen: mismo árbol de grupos, estilo actual de cada capa; las de fichero/BBDD/temporales se copian (con filtro), los servicios web se enlazan; se actualiza solo | Idea |
 
 ### Mejoras visuales y de uso (propuestas, por priorizar)
 | # | Mejora | Qué aporta |

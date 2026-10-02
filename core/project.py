@@ -69,10 +69,11 @@ def _apply_style(layer, qml, save_in_geopackage=False):
             pass  #Si no se puede guardar dentro, el estilo sigue guardado en el proyecto
 
 
-def add_layer(project, path, group_path=()):
+def add_layer(project, path, group_path=(), qml=None, name=None):
     """
     Añade al proyecto la capa (o capas, si el fichero tiene varias) del fichero path, dentro del grupo group_path.
-    Si el fichero tiene una sola capa y hay un .qml con el mismo nombre, se aplica su estilo.
+    Si el fichero tiene una sola capa y hay un .qml con el mismo nombre, se aplica su estilo
+    (o el estilo qml indicado: el que tenía la capa en el proyecto abierto en QGIS). name: nombre de la capa (si tiene una).
     Devuelve la lista de capas añadidas.
     """
     name = os.path.splitext(os.path.basename(path))[0]
@@ -95,7 +96,9 @@ def add_layer(project, path, group_path=()):
         if not layer.isValid():
             raise ValueError(f"La capa {layer.name()} no es válida")
         if len(layers) == 1:  #El .qml es de una capa: solo se aplica si el fichero tiene una
-            _apply_style(layer, style_path(path))
+            _apply_style(layer, qml or style_path(path))
+            if name:
+                layer.setName(name)
         project.addMapLayer(layer, False)  #Se añade al proyecto pero no aparece en el árbol (lo colocamos nosotros)
         _add_to_tree(group, layer)
     return layers
@@ -161,3 +164,16 @@ def put_on_top(project, layers):
         copia.setItemVisibilityChecked(True)
         root.insertChildNode(0, copia)
         node.parent().removeChildNode(node)
+
+
+def add_linked_layer(project, layer, group_path=()):
+    """
+    Añade una capa que no se copia (servicio web, malla, nube de puntos...): una copia de la capa del proyecto abierto,
+    con su misma fuente y su estilo. layer debe ser ya una copia (layer.clone()) que no pertenezca a ningún proyecto.
+    """
+    if not layer.isValid():
+        raise ValueError(f"La capa {layer.name()} no se ha podido cargar")
+    project.addMapLayer(layer, False)
+    _add_to_tree(group_for(project, group_path), layer)
+    return layer
+

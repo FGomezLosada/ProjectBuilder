@@ -35,6 +35,7 @@ Clase = dock_module.ProjectBuilderDockWidget
 avisos, plantillas = [], []
 _originales = {n: getattr(Clase, n) for n in ('warn', 'start_health_check', '_layout_files', '_set_layout_files', 'show_success')}
 Clase.warn = lambda self, msg: avisos.append(msg)
+dock_module.ProjectBuilderDockWidget.load_project_layers = lambda self, *a: None  # sin el bloque del proyecto abierto: no depende de lo que tenga abierto el usuario
 Clase.start_health_check = lambda self, force=False: None
 Clase._layout_files = staticmethod(lambda: list(plantillas))  # lista de plantillas en memoria: no se toca la del usuario
 Clase._set_layout_files = staticmethod(lambda rutas: plantillas.__setitem__(slice(None), rutas))

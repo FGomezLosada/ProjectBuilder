@@ -44,6 +44,7 @@ def paso(texto):
 
 
 dock_module.ProjectBuilderDockWidget.warn = lambda self, msg: avisos.append(msg)  # sin ventanas emergentes
+dock_module.ProjectBuilderDockWidget.load_project_layers = lambda self, *a: None  # sin el bloque del proyecto abierto: no depende de lo que tenga abierto el usuario
 _exito = dock_module.ProjectBuilderDockWidget.show_success
 _revision = dock_module.ProjectBuilderDockWidget.start_health_check
 dock_module.ProjectBuilderDockWidget.start_health_check = lambda self, force=False: None  # sin revisar servicios por internet

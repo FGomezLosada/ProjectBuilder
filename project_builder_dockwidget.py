@@ -19,6 +19,7 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsNetworkAccessManager,
     QgsProject,
+    QgsIconUtils,
     QgsRectangle,
     QgsVectorLayer,
 )
@@ -39,6 +40,7 @@ from qgis.PyQt.QtWidgets import (
 
 from .core import configs
 from .core import layouts
+from .core import open_project
 from .core import project as qgis_project
 from .core import services as svc
 from .core.clip import ZONE_TABLE, ZoneError, apply_margin, geometry_from_extent, geometry_from_layer, view_extent, write_zone
@@ -82,6 +84,7 @@ LAYER_ROLE = Qt.ItemDataRole.UserRole + 2  #Nombre de la capa interna (solo en l
 SERVICE_ROLE = Qt.ItemDataRole.UserRole + 3  #Servicio web (diccionario) de cada elemento del árbol de servicios
 LAYOUT_ROLE = Qt.ItemDataRole.UserRole + 5  #Composición de cada elemento de la lista: ['proyecto', nombre] o ['fichero', ruta]
 NODE_ROLE = Qt.ItemDataRole.UserRole + 4  #Tipo de nodo del árbol de servicios: raíz, grupo, servicio (desplegable) o capa
+PROJECT_ROOT, PROJECT_GROUP, PROJECT_LAYER = 'proyecto', 'grupo_proyecto', 'capa_proyecto'  #Bloque del proyecto abierto
 SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
 
 
@@ -166,6 +169,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.load_last_crs()
         self.selectProjection.crsChanged.connect(self.remember_crs)
         self.setup_zone()
+        self.setup_open_project()
         self.setup_layouts()
         self.setup_configs()
 
@@ -195,6 +199,148 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def remember_crs(self, crs):
         if crs.isValid():
             QSettings().setValue(SETTINGS + 'last_crs', crs.authid() or crs.toWkt())
+
+    # ------------------------------------------------------------------ Capas del proyecto abierto (4.10)
+
+    def setup_open_project(self):
+        """Bloque «Proyecto abierto en QGIS» del árbol de capas, que se actualiza solo si cambia el proyecto abierto."""
+        self.projectTimer = QTimer(self)  #Al abrir un proyecto QGIS avisa muchas veces seguidas: se recalcula una sola vez
+        self.projectTimer.setSingleShot(True)
+        self.projectTimer.setInterval(300)
+        self.projectTimer.timeout.connect(self.load_project_layers)
+        proyecto = QgsProject.instance()
+        raiz = proyecto.layerTreeRoot()
+        for senal in (proyecto.layersAdded, proyecto.layersRemoved, proyecto.readProject, proyecto.cleared,
+                      raiz.addedChildren, raiz.removedChildren, raiz.nameChanged):
+            senal.connect(self.schedule_project_layers)
+        self.load_project_layers()
+
+    def schedule_project_layers(self, *args):
+        """Pide actualizar el bloque del proyecto abierto (método y no lambda: ver schedule_summary)."""
+        if hasattr(self, 'projectTimer'):
+            self.projectTimer.start()
+
+    def _project_root(self):
+        for i in range(self.treeWidget.topLevelItemCount()):
+            if self.treeWidget.topLevelItem(i).data(0, KIND_ROLE) == PROJECT_ROOT:
+                return self.treeWidget.topLevelItem(i)
+        return None
+
+    def _project_leaves(self, item=None):
+        """Elementos-capa del bloque del proyecto abierto."""
+        item = item or self._project_root()
+        if item is None:
+            return []
+        hojas = []
+        for i in range(item.childCount()):
+            hijo = item.child(i)
+            if hijo.data(0, KIND_ROLE) == PROJECT_LAYER:
+                hojas.append(hijo)
+            hojas += self._project_leaves(hijo)
+        return hojas
+
+    def _setup_project_item(self, item, kind, icon, layer_id=None):
+        item.setData(0, KIND_ROLE, kind)
+        item.setData(0, PATH_ROLE, '')
+        item.setData(0, LAYER_ROLE, layer_id)
+        item.setIcon(0, icon)
+        flags = item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+        if kind != PROJECT_LAYER:
+            flags |= Qt.ItemFlag.ItemIsAutoTristate  #Marcar el proyecto o un grupo marca todas sus capas
+        item.setFlags(flags)
+        item.setCheckState(0, Qt.CheckState.Unchecked)
+
+    def load_project_layers(self, *args):
+        """
+        (Re)crea el bloque «Proyecto abierto en QGIS» con el mismo árbol de grupos y capas que el panel de capas de QGIS,
+        conservando lo que ya estuviera marcado. Si el proyecto abierto no tiene capas, el bloque no aparece.
+        """
+        marcadas = {item.data(0, LAYER_ROLE) for item in self._project_leaves() if item.checkState(0) == Qt.CheckState.Checked}
+        raiz = self._project_root()
+        expandida = raiz.isExpanded() if raiz is not None else True
+        if raiz is not None:
+            self.treeWidget.takeTopLevelItem(self.treeWidget.indexOfTopLevelItem(raiz))
+        arbol = open_project.tree()
+        if arbol:
+            self.treeWidget.blockSignals(True)
+            raiz = QTreeWidgetItem(["Proyecto abierto en QGIS"])
+            self.treeWidget.insertTopLevelItem(0, raiz)  #Siempre arriba del todo
+            raiz.setToolTip(0, "Capas del proyecto abierto ahora mismo en QGIS. Se copian con su estilo actual;\n"
+                               "los servicios web se añaden tal cual (sin copiar datos).")
+            self._setup_project_item(raiz, PROJECT_ROOT, QgsApplication.getThemeIcon('/mIconQgsProjectFile.svg'))
+
+            def anadir(padre, hijos):
+                for hijo in hijos:
+                    if hijo[0] == 'grupo':
+                        grupo = QTreeWidgetItem(padre, [hijo[1]])
+                        self._setup_project_item(grupo, PROJECT_GROUP, QgsApplication.getThemeIcon('/mActionFolder.svg'))
+                        anadir(grupo, hijo[3])
+                        grupo.setExpanded(hijo[2])
+                    else:
+                        capa = hijo[1]
+                        item = QTreeWidgetItem(padre, [capa.name()])
+                        self._setup_project_item(item, PROJECT_LAYER, QgsIconUtils.iconForLayer(capa), capa.id())
+                        enlazada = open_project.how(capa) == open_project.LINK
+                        item.setToolTip(0, capa.publicSource() + ("\nSe añade tal cual (servicio web u otro tipo de capa): no se copian datos"
+                                                                  if enlazada else "\nSe copia con su estilo actual"))
+                        if capa.id() in marcadas:
+                            item.setCheckState(0, Qt.CheckState.Checked)
+
+            anadir(raiz, arbol)
+            raiz.setExpanded(expandida)
+            self.treeWidget.blockSignals(False)
+            self.apply_filter(self.filterBox.text())
+        self.schedule_summary()
+
+    def selected_project_layers(self):
+        """Capas marcadas del proyecto abierto, como lista de (grupos, capa); p. ej. (('Catastro',), <capa parcelas>)."""
+        seleccion = []
+        for item in self._project_leaves():
+            capa = QgsProject.instance().mapLayer(item.data(0, LAYER_ROLE))
+            if item.checkState(0) != Qt.CheckState.Checked or capa is None:
+                continue
+            grupos, padre = [], item.parent()
+            while padre is not None and padre.data(0, KIND_ROLE) == PROJECT_GROUP:
+                grupos.insert(0, padre.text(0))
+                padre = padre.parent()
+            seleccion.append((tuple(grupos), capa))
+        return seleccion
+
+    def build_project_jobs(self, folder_project, gpkg, mode, tablas_usadas, rutas_usadas):
+        """
+        Trabajos (Job) de las capas marcadas del proyecto abierto. Se preparan aquí, en primer plano, porque hay que leer
+        las capas del proyecto: su estilo actual (.qml temporal) y, si no son de fichero, una copia en un GeoPackage temporal.
+        Las capas que no se copian (servicios web...) se guardan en self.project_links para añadirlas al terminar.
+        """
+        jobs, self.project_links, self.prepare_errors = [], [], []
+        for grupos, capa in self.selected_project_layers():
+            estilo = open_project.save_style(capa)
+            if open_project.how(capa) == open_project.LINK:
+                copia = capa.clone()  #Misma fuente y mismo estilo, pero independiente del proyecto abierto
+                if copia is None:
+                    self.prepare_errors.append(f"No se pudo copiar la capa {capa.name()}")
+                else:
+                    copia.setName(capa.name())
+                    self.project_links.append((grupos, copia))
+                continue
+            try:
+                fuente, subcapa = open_project.prepare_copy(capa)
+            except OSError as e:
+                self.prepare_errors.append(str(e))
+                continue
+            nombre = open_project.safe_name(capa.name())
+            es_vectorial = isinstance(capa, QgsVectorLayer)
+            if es_vectorial and mode == SINGLE:  #Como tabla del GeoPackage común
+                jobs.append(Job(fuente, gpkg, grupos, tables={subcapa: nombre_unico(nombre, tablas_usadas)}, qml=estilo))
+                continue
+            carpetas = [open_project.safe_name(g) for g in grupos]  #Subcarpetas = grupos del proyecto abierto
+            ruta = os.path.join(folder_project, *carpetas, nombre + os.path.splitext(fuente)[1])
+            path_target = output_path(ruta, VECTOR if es_vectorial else RASTER, CONVERT if mode == SINGLE else mode)
+            base, ext = os.path.splitext(path_target)
+            path_target = nombre_unico(base, rutas_usadas) + ext
+            multicapa = es_vectorial and len(vector_sublayers(fuente)) > 1
+            jobs.append(Job(fuente, path_target, grupos, layers=[subcapa] if multicapa else None, qml=estilo, name=capa.name()))
+        return jobs
 
     # ------------------------------------------------------------------ Composiciones de impresión (4.5)
 
@@ -402,7 +548,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                         recorrer(item.child(i))
 
         for i in range(self.treeWidget.topLevelItemCount()):
-            recorrer(self.treeWidget.topLevelItem(i))
+            if self.treeWidget.topLevelItem(i).data(0, KIND_ROLE) != PROJECT_ROOT:  #El proyecto abierto se guarda aparte
+                recorrer(self.treeWidget.topLevelItem(i))
         return marcadas
 
     def config_to_dict(self):
@@ -429,6 +576,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 'anadir_capa': self.zoneAddLayer.isChecked(),
             },
             'composiciones': [list(c) for c in self.selected_layouts()],
+            'proyecto_abierto': [{'id': capa.id(), 'nombre': capa.name(), 'fuente': capa.source()}
+                                 for _, capa in self.selected_project_layers()],
         }
 
     def _zone_layer_from_config(self, datos):
@@ -516,6 +665,20 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.zoneAddLayer.setChecked(zona.get('anadir_capa', True))
         self.groupZone.setChecked(zona.get('activa', False))
 
+        abiertas = datos.get('proyecto_abierto', [])
+        if abiertas:  #Capas del proyecto abierto: se buscan por su identificador o, si se abrió otra vez el proyecto, por su fuente
+            self.load_project_layers()
+            ids, fuentes = {c.get('id') for c in abiertas}, {c.get('fuente') for c in abiertas}
+            encontradas = set()
+            for item in self._project_leaves():
+                capa = QgsProject.instance().mapLayer(item.data(0, LAYER_ROLE))
+                if capa is not None and (capa.id() in ids or capa.source() in fuentes):
+                    item.setCheckState(0, Qt.CheckState.Checked)
+                    encontradas |= {capa.id(), capa.source()}
+            for c in abiertas:
+                if c.get('id') not in encontradas and c.get('fuente') not in encontradas:
+                    avisos.append(f"La capa «{c.get('nombre')}» no está en el proyecto abierto en QGIS")
+
         composiciones = [tuple(c) for c in datos.get('composiciones', [])]
         for tipo, valor in composiciones:
             if tipo == 'fichero' and os.path.isfile(valor) and valor not in self._layout_files() \
@@ -595,6 +758,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def reset_form(self):
         """Vacía el formulario: carpetas, capas marcadas, nombre, destino, WMS y formato. Se mantiene el SRC."""
         self.treeWidget.clear()
+        self.load_project_layers()  #El bloque del proyecto abierto vuelve a aparecer, sin nada marcado
         self.filterBox.clear()
         self.nameProject.clear()
         self.pathFolderProject.clear()
@@ -643,8 +807,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.add_source_folder(folder)
 
     def source_folders(self):
-        """Rutas de las carpetas de capas añadidas (las raíces del árbol)."""
-        return [self.treeWidget.topLevelItem(i).data(0, PATH_ROLE) for i in range(self.treeWidget.topLevelItemCount())]
+        """Rutas de las carpetas de capas añadidas (las raíces del árbol, menos el bloque del proyecto abierto)."""
+        raices = (self.treeWidget.topLevelItem(i) for i in range(self.treeWidget.topLevelItemCount()))
+        return [r.data(0, PATH_ROLE) for r in raices if r.data(0, KIND_ROLE) != PROJECT_ROOT]
 
     def add_source_folder(self, folder):
         """Añade una carpeta de capas como nueva raíz del árbol (sin perder lo ya marcado en las demás)."""
@@ -668,6 +833,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return self.warn("Haz clic en la carpeta que quieres quitar (o en cualquier capa suya)")
         while item.parent() is not None:  #Se sube hasta la raíz (la carpeta añadida)
             item = item.parent()
+        if item.data(0, KIND_ROLE) == PROJECT_ROOT:
+            return self.warn("El bloque «Proyecto abierto en QGIS» no se puede quitar: desmarca las capas que no quieras")
         self.treeWidget.takeTopLevelItem(self.treeWidget.indexOfTopLevelItem(item))
         self.update_summary()
 
@@ -724,7 +891,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         for i in range(self.treeWidget.topLevelItemCount()):
             raiz = self.treeWidget.topLevelItem(i)
-            recorrer(raiz, raiz.data(0, PATH_ROLE))
+            if raiz.data(0, KIND_ROLE) != PROJECT_ROOT:  #Las capas del proyecto abierto van aparte (selected_project_layers)
+                recorrer(raiz, raiz.data(0, PATH_ROLE))
         return sources
 
     def count_layers(self):
@@ -734,7 +902,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if os.path.isdir(path):
                 continue
             total += len(layers) if layers is not None else len(self._item_layers(path)) or 1
-        return total
+        return total + len(self.selected_project_layers())
 
     def _item_layers(self, path):
         """Capas internas de un fichero multicapa según el árbol (sin volver a leer el disco)."""
@@ -1056,9 +1224,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return "La ruta del proyecto es un fichero, no una carpeta"
         if self.addWMS.isChecked() and not self.selected_services():
             return "No has marcado ningún servicio web (o desmarca la sección 2)"
-        if not self.selected_sources() and not self.addWMS.isChecked():  #Hace falta al menos una capa o un servicio WMS
+        if not self.selected_sources() and not self.selected_project_layers() and not self.addWMS.isChecked():  #Hace falta al menos una capa o un servicio WMS
             return "No se ha marcado ninguna capa ni ningún servicio web"
         # Evitar sobrescribir los datos de origen: el proyecto no puede estar en ninguna carpeta de capas ni dentro de ella
+        for _, capa in self.selected_project_layers():  #Tampoco puede sobrescribir los ficheros de las capas del proyecto abierto
+            fichero = open_project.file_path(capa)
+            if fichero and dentro_de(fichero, folder_project):
+                return f"La capa «{capa.name()}» está dentro de la carpeta del proyecto: elige otra carpeta de destino"
         for carpeta in self.source_folders():
             if dentro_de(folder_project, carpeta):
                 return f"La carpeta del proyecto no puede ser una carpeta de capas ni estar dentro de ella:\n{carpeta}"
@@ -1110,7 +1282,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             base, ext = os.path.splitext(path_target)
             path_target = nombre_unico(base, rutas_usadas) + ext  #p. ej. rios.shp y rios.geojson convertidos ambos a rios.gpkg
             jobs.append(Job(path_source, path_target, group, layers=layers))
-        return jobs
+        return jobs + self.build_project_jobs(folder_project, gpkg, mode, tablas_usadas, rutas_usadas)
 
     def create_project(self, background=True):
         """
@@ -1173,12 +1345,20 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 if output.tables:  #Tablas del GeoPackage común
                     capas = qgis_project.add_geopackage_tables(project, output.path, output.tables, output.group, output.qml)
                 else:
-                    capas = qgis_project.add_layer(project, output.path, output.group)
+                    capas = qgis_project.add_layer(project, output.path, output.group, output.qml, output.name)
                 anadidas += capas
                 if output.zone:
                     qgis_project.put_on_top(project, capas)  #El contorno de la zona, visible y por encima de todo
             except ValueError as e:
                 errors.append(str(e))
+
+        for grupos, capa in getattr(self, 'project_links', []):  #Capas del proyecto abierto que no se copian (servicios web...)
+            try:
+                qgis_project.add_linked_layer(project, capa, grupos)
+            except ValueError as e:
+                errors.append(str(e))
+        self.project_links = []
+        errors += getattr(self, 'prepare_errors', [])
 
         servicios = self.selected_services() if self.addWMS.isChecked() else []
         if servicios:  #Si la sección de servicios está activada, se crea el grupo y se añaden las capas marcadas

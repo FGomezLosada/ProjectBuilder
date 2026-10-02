@@ -45,6 +45,7 @@ TODAS = ("multicapa.gpkg", "zonas_4326.shp", "puntos_23030.shp", "MAYUSCULAS_432
 SINGLE, CONVERT, KEEP = 'single', 'convert', 'keep'
 avisos = []
 dock_module.ProjectBuilderDockWidget.warn = lambda self, msg: avisos.append(msg)  # sin ventanas emergentes
+dock_module.ProjectBuilderDockWidget.load_project_layers = lambda self, *a: None  # sin el bloque del proyecto abierto: no depende de lo que tenga abierto el usuario
 
 
 def _items(item):

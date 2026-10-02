@@ -13,7 +13,7 @@
 
 ProjectBuilder creates a QGIS project (`.qgz`) in a few clicks:
 
-- **Local layers** from one or more folders (Shapefile, GeoPackage, GeoJSON, KML, GML, FlatGeobuf, DXF, GPX, GeoTIFF, ECW, JPEG2000, ASCII Grid…), copied into **a single GeoPackage**, one GeoPackage per layer or their original format, optionally **reprojected** to the project CRS. Source folders become layer groups and `.qml` styles are kept.
+- **Layers of the open QGIS project** (same groups, current styles) and **local layers** from one or more folders (Shapefile, GeoPackage, GeoJSON, KML, GML, FlatGeobuf, DXF, GPX, GeoTIFF, ECW, JPEG2000, ASCII Grid…), copied into **a single GeoPackage**, one GeoPackage per layer or their original format, optionally **reprojected** to the project CRS. Source folders become layer groups and `.qml` styles are kept.
 - **Work area**: clip every layer to a polygon layer (or its selected features) or a rectangle, with an optional buffer in metres.
 - **Web services** (WMS, WMTS, WFS): your favourites, your QGIS connections and a built-in, automatically checked catalogue of Spanish public services (IGN, Cadastre, IGME, regional SDIs).
 - **Print layouts** from the open project or from `.qpt` templates, with their maps centred on the work area.
@@ -31,6 +31,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/Pr
 
 ### Qué hace
 - Compatible con **QGIS 3.34+ y QGIS 4.x**, en Windows, Linux y macOS. Sin dependencias externas.
+- **Capas del proyecto abierto en QGIS**, con sus mismos grupos y su estilo actual (los servicios web se añaden tal cual).
 - **Capas locales** de varias carpetas a la vez; cada carpeta se convierte en un grupo del proyecto y se conservan los estilos `.qml`.
   - Vectoriales: Shapefile, GeoPackage, SpatiaLite, GeoJSON, KML, GML, FlatGeobuf, MapInfo, DXF y GPX.
   - Ráster: GeoTIFF, ECW, JPEG2000, ASCII Grid, IMG, VRT, PNG/JPG georreferenciados y MrSID.
@@ -48,7 +49,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/Pr
 ### Uso
 **Configuración** (arriba): elige una configuración guardada para rellenar el panel, o guarda la actual con 💾.
 
-1. **Capas**: pulsa *Añadir carpeta…* (tantas veces como orígenes necesites) y marca las capas o carpetas (☑). La caja de búsqueda filtra; los GeoPackage se despliegan para elegir capas sueltas. Elige el **formato de salida**.
+1. **Capas**: arriba del árbol aparecen las capas del **proyecto abierto en QGIS**; márcalas igual que las de las carpetas. Pulsa *Añadir carpeta…* (tantas veces como orígenes necesites) y marca las capas o carpetas (☑). La caja de búsqueda filtra; los GeoPackage se despliegan para elegir capas sueltas. Elige el **formato de salida**.
 2. **Servicios web** (opcional): activa la sección y marca las capas. Despliega un servicio para ver sus capas; **★** guarda una capa en Favoritos y **+** crea una conexión nueva en QGIS.
 
    ![Servicios web](docs/captura_servicios.png)

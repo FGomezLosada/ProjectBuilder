@@ -1,5 +1,8 @@
 # Changelog / Historial de versiones
 
+## Próxima versión
+- **Capas del proyecto abierto** como origen: mismo árbol de grupos y estilo actual de cada capa. Las de fichero, base de datos o temporales se copian (respetando su filtro); los servicios web se añaden tal cual. La lista se actualiza sola.
+
 ## 0.6.1 (2026-10-02)
 - Preparado para el repositorio oficial de QGIS: descripción en inglés, licencia GPL (`LICENSE`), README bilingüe, este historial y generación automática del ZIP (`tools/package.py` y GitHub Action).
 
