@@ -12,6 +12,7 @@ import tempfile
 
 import qgis.utils
 from qgis.core import Qgis, QgsCoordinateReferenceSystem, QgsProject
+from qgis.PyQt.QtCore import Qt
 
 qgis.utils.reloadPlugin('project_builder')
 import project_builder.project_builder_dockwidget as dock_module  # noqa: E402
@@ -34,7 +35,7 @@ dw.load_tree(DATA)
 def _seleccionar(item):
     """Recorre el árbol (sin QTreeWidgetItemIterator, que puede cerrar QGIS 4 si sobrevive al árbol)."""
     if item.text(0) in SELECCION:
-        item.setSelected(True)
+        item.setCheckState(0, Qt.CheckState.Checked)  # se marca la casilla, como haría el usuario
     for i in range(item.childCount()):
         _seleccionar(item.child(i))
 
@@ -63,6 +64,7 @@ checks = {
     ".qml copiado": 'vectorial' + os.sep + 'zonas_4326.qml' in ficheros,
     "sin ficheros sueltos (.qgs~, attachments)": not any(f.endswith(('.qgs~', '_attachments.zip', '.qgs')) for f in ficheros),
     "rutas relativas en el proyecto": p.filePathStorage() == Qgis.FilePathType.Relative,
+    "services.json leído (3 WMS)": len(dw.services) == 3,
 }
 
 print("=" * 60)

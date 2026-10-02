@@ -1,0 +1,22 @@
+{
+  "wms": [
+    {
+      "name": "Unidad administrativa",
+      "url": "https://www.ign.es/wms-inspire/unidades-administrativas",
+      "layer": "AU.AdministrativeUnit",
+      "crs": "EPSG:25830"
+    },
+    {
+      "name": "Nombres geográficos",
+      "url": "https://www.ign.es/wms-inspire/ngbe",
+      "layer": "GN.GeographicalNames",
+      "crs": "EPSG:25830"
+    },
+    {
+      "name": "Ortoimagen PNOA máxima actualidad",
+      "url": "https://www.ign.es/wms-inspire/pnoa-ma",
+      "layer": "OI.OrthoimageCoverage",
+      "crs": "EPSG:25830"
+    }
+  ]
+}

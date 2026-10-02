@@ -21,7 +21,7 @@ from .core import project as qgis_project
 from .core.task import ExportTask
 from .core.formats import FOLDER, VECTOR
 from .core.scanner import scan_folder
-from .wms.wms import dict_wms
+from .core.services import ServicesError, load_services
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'project_builder_dockwidget_base.ui'))
@@ -114,9 +114,14 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     # ------------------------------------------------------------------ Servicios WMS
 
     def load_wms_combo(self):
-        """Añadir nombres wms a combo"""
+        """Añadir nombres wms a combo (se leen de services.json)"""
         self.wmsComboBox.clear()
-        self.wmsComboBox.addItems(list(dict_wms.keys()))
+        try:
+            self.services = load_services()
+        except ServicesError as e:  #Si services.json tiene un error, se avisa y el plugin sigue funcionando sin WMS
+            self.services = {}
+            self.iface.messageBar().pushMessage("ProjectBuilder", str(e), level=Qgis.MessageLevel.Critical, duration=0)
+        self.wmsComboBox.addItems(list(self.services.keys()))
 
     # ------------------------------------------------------------------ Crear proyecto
 
@@ -129,15 +134,19 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return "No se ha introducido un nombre para el proyecto"
         if not os.path.isdir(folder_project):
             return "Carpeta de proyecto no válida"
-        if not os.path.isdir(folder_layers):
-            return "Acceso a capas no válido"
-        # Evitar sobrescribir los datos de origen: el proyecto no puede estar en la carpeta de capas ni dentro de ella
-        origen = os.path.normcase(os.path.abspath(folder_layers))
-        destino = os.path.normcase(os.path.abspath(folder_project))
-        if destino == origen or destino.startswith(origen + os.sep):
-            return "La carpeta del proyecto no puede ser la carpeta de capas ni estar dentro de ella"
         if self.addWMS.isChecked() and not self.wmsComboBox.checkedItems():
             return "No ha seleccionado ningún WMS"
+        hay_capas = bool(self.selected_paths())
+        if not hay_capas and not self.addWMS.isChecked():  #Hace falta al menos una capa o un servicio WMS
+            return "No se ha marcado ninguna capa ni ningún servicio WMS"
+        if hay_capas:  #La carpeta de capas solo se comprueba si se van a copiar capas (un proyecto solo con WMS no la necesita)
+            if not os.path.isdir(folder_layers):
+                return "Acceso a capas no válido"
+            # Evitar sobrescribir los datos de origen: el proyecto no puede estar en la carpeta de capas ni dentro de ella
+            origen = os.path.normcase(os.path.abspath(folder_layers))
+            destino = os.path.normcase(os.path.abspath(folder_project))
+            if destino == origen or destino.startswith(origen + os.sep):
+                return "La carpeta del proyecto no puede ser la carpeta de capas ni estar dentro de ella"
         return None
 
     def create_project(self, background=True):
@@ -191,7 +200,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             group = qgis_project.add_group(project, 'WMS')
             for wms in self.wmsComboBox.checkedItems():  #Recorrer wms seleccionados y obtener name y url del diccionario
                 try:
-                    qgis_project.add_wms(project, group, wms, dict_wms[wms]['url'])
+                    qgis_project.add_wms(project, group, wms, self.services[wms].uri())
                 except ValueError as e:
                     errors.append(str(e))
 
