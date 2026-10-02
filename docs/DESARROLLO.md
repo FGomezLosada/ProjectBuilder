@@ -98,3 +98,19 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | 4.6 | Estadísticas de las capas seleccionadas | TFM |
 | 4.7 | Conexión a base de datos (PostGIS) como origen de capas | TFM |
 | 4.8 | Estilos `.qml` con símbolos SVG (pendiente de definir) | Word de mejoras |
+| 4.9 | Plantillas de configuración: guardar/cargar en `.json` carpetas, capas marcadas, WMS, SRC y modo (p. ej. "Proyecto municipal Nerja") | Idea aprobada |
+| 4.10 | Origen "capas del proyecto abierto en QGIS" (además de carpetas y BBDD) | Idea |
+
+### Mejoras visuales y de uso (propuestas, por priorizar)
+| # | Mejora | Qué aporta |
+|---|---|---|
+| V1 | Panel en 3 secciones plegables (1 Capas · 2 Servicios · 3 Proyecto) en lugar de pestañas | Todo a la vista y en orden de uso; los WMS dejan de estar "escondidos" |
+| V2 | Resumen en vivo junto al botón: "7 capas · 2 WMS · un solo GeoPackage" | Saber qué se va a generar antes de pulsar |
+| V3 | Iconos de QGIS según geometría y tipo (punto/línea/polígono, ráster, GeoPackage, carpeta) | Árbol más legible y con el aspecto nativo de QGIS (y de su tema oscuro) |
+| V4 | Información al pasar el ratón por una capa: ruta, SRC, nº de elementos, tamaño | Elegir sin abrir las capas |
+| V5 | "Ver en el mapa": resaltar la extensión de la capa al hacer clic | Comprobar de un vistazo dónde cae cada capa |
+| V6 | Avisos dentro del propio panel (barra de mensajes) en lugar de ventanas emergentes | Menos interrupciones |
+| V7 | Informe final: capas exportadas, tamaño, tiempo, problemas, botones "Abrir proyecto" y "Abrir carpeta" | Cierre claro del proceso |
+| V8 | Arrastrar carpetas o ficheros desde el Explorador de Windows al árbol | Añadir orígenes más rápido |
+| V9 | Icono nuevo en SVG y botón de ayuda que abre el README | Imagen más profesional |
+
