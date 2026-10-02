@@ -1,0 +1,37 @@
+# Al subir una etiqueta vX.Y.Z (git tag v0.7.0 && git push --tags) se genera el ZIP del plugin
+# y se crea la "Release" de GitHub con el ZIP adjunto y las novedades de metadata.txt.
+# Ese mismo ZIP es el que se sube a https://plugins.qgis.org/.
+name: Publicar versión
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generar el ZIP del plugin
+        run: python tools/package.py
+      - name: Novedades de esta versión (del changelog de metadata.txt)
+        run: |
+          python - << 'PY'
+          import configparser, os
+          m = configparser.ConfigParser(interpolation=None)
+          m.read('metadata.txt', encoding='utf-8')
+          version = m['general']['version'].strip()
+          lineas = [l.strip() for l in m['general']['changelog'].splitlines() if l.strip().startswith(version)]
+          texto = lineas[0].split('-', 1)[1].strip() if lineas else 'Ver CHANGELOG.md'
+          open('novedades.md', 'w', encoding='utf-8').write(texto + '\n\nInstalación: QGIS → Complementos → Instalar desde ZIP (o desde el repositorio oficial de QGIS).\n')
+          PY
+      - name: Crear la Release de GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --title "ProjectBuilder $GITHUB_REF_NAME" --notes-file novedades.md

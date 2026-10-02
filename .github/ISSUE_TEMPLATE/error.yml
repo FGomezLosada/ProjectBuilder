@@ -1,0 +1,43 @@
+name: "Error / Bug report"
+description: "Algo no funciona como debería / Something does not work as expected"
+labels: ["error"]
+body:
+  - type: textarea
+    id: que
+    attributes:
+      label: "¿Qué ha pasado? / What happened?"
+      description: "Describe el problema y el mensaje de error, si lo hay. / Describe the problem and any error message."
+    validations:
+      required: true
+  - type: textarea
+    id: pasos
+    attributes:
+      label: "Pasos para reproducirlo / Steps to reproduce"
+      placeholder: "1. Añado la carpeta…\n2. Marco…\n3. Pulso Crear proyecto…"
+    validations:
+      required: true
+  - type: input
+    id: qgis
+    attributes:
+      label: "Versión de QGIS / QGIS version"
+      placeholder: "p. ej. 3.40.13 o 4.2.2 (Ayuda → Acerca de)"
+    validations:
+      required: true
+  - type: input
+    id: plugin
+    attributes:
+      label: "Versión de ProjectBuilder / Plugin version"
+      placeholder: "p. ej. 0.6.0 (Complementos → Administrar)"
+    validations:
+      required: true
+  - type: dropdown
+    id: so
+    attributes:
+      label: "Sistema operativo / Operating system"
+      options: ["Windows", "Linux", "macOS"]
+  - type: textarea
+    id: informe
+    attributes:
+      label: "Informe de error de QGIS (si se ha cerrado) / QGIS crash report"
+      description: "Si QGIS se cerró, pega aquí el informe (botón «Copiar informe»). / If QGIS crashed, paste the report here."
+      render: text

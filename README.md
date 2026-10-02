@@ -1,47 +1,72 @@
 # ProjectBuilder
 
-Plugin de QGIS que crea un proyecto (`.qgz`) a partir de una selección de capas locales y servicios WMS.
-Las capas se **copian y reproyectan** al SRC elegido dentro de la carpeta del proyecto, conservando la
-estructura de subcarpetas y sus estilos `.qml`.
+**QGIS plugin that builds a ready-to-use QGIS project from a selection of local layers and web services.**
+*Plugin de QGIS que crea un proyecto listo para trabajar a partir de una selección de capas y servicios web.*
 
-- Compatible con **QGIS 3.34+ y QGIS 4.x**
-- Formatos vectoriales: Shapefile, GeoPackage, SpatiaLite, GeoJSON, KML, GML, FlatGeobuf, MapInfo, DXF y GPX
-- Formatos ráster: GeoTIFF, ECW, JPEG2000, ASCII Grid, IMG, VRT, PNG/JPG georreferenciados y MrSID
-- Capas de varias carpetas a la vez; cada carpeta de origen se convierte en un grupo del proyecto
-- Formato de salida a elegir: un solo GeoPackage + GeoTIFF (recomendado), un GeoPackage por capa o conservar el original
-- Servicios web WMS, WMTS y WFS: tus **favoritos**, tus **conexiones de QGIS** y un **catálogo** de servicios oficiales (IGN, Catastro, IGME, comunidades)
-- Exportación en segundo plano, con progreso y cancelación
+![QGIS 3.34+ | 4.x](https://img.shields.io/badge/QGIS-3.34%2B%20%7C%204.x-589632) ![License GPL v2+](https://img.shields.io/badge/license-GPL%20v2%2B-blue)
 
-## Uso
+[English](#english) · [Español](#español)
+
+---
+
+## English
+
+ProjectBuilder creates a QGIS project (`.qgz`) in a few clicks:
+
+- **Local layers** from one or more folders (Shapefile, GeoPackage, GeoJSON, KML, GML, FlatGeobuf, DXF, GPX, GeoTIFF, ECW, JPEG2000, ASCII Grid…), copied into **a single GeoPackage**, one GeoPackage per layer or their original format, optionally **reprojected** to the project CRS. Source folders become layer groups and `.qml` styles are kept.
+- **Work area**: clip every layer to a polygon layer (or its selected features) or a rectangle, with an optional buffer in metres.
+- **Web services** (WMS, WMTS, WFS): your favourites, your QGIS connections and a built-in, automatically checked catalogue of Spanish public services (IGN, Cadastre, IGME, regional SDIs).
+- **Print layouts** from the open project or from `.qpt` templates, with their maps centred on the work area.
+- **Saved configurations** to repeat the same kind of project with one click.
+- Runs in the background, with progress and cancel. No external dependencies.
+
+The user interface is in Spanish. Install it from *Plugins → Manage and Install Plugins* (search for *ProjectBuilder*) or download the ZIP from [Releases](https://github.com/FGomezLosada/ProjectBuilder/releases) and use *Install from ZIP*.
+Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/ProjectBuilder/issues).
+
+---
+
+## Español
+
 ![Panel de ProjectBuilder](docs/captura_panel.png)
 
-1. **Capas**: pulsa *Añadir carpeta…* (tantas veces como orígenes necesites) y marca las capas o carpetas (☑) que quieras incluir. Usa la caja de búsqueda para filtrar; los GeoPackage se despliegan para elegir capas sueltas.
-   *Quitar carpeta* elimina del árbol la carpeta en la que hayas hecho clic. Elige el **formato de salida**.
-2. **Servicios web** (opcional): marca la casilla de la sección *2 · Servicios web* y marca las capas. Despliega un servicio para ver sus capas;
-   pulsa **★** sobre una capa para guardarla en Favoritos, y **+** para crear una conexión nueva en QGIS.
+### Qué hace
+- Compatible con **QGIS 3.34+ y QGIS 4.x**, en Windows, Linux y macOS. Sin dependencias externas.
+- **Capas locales** de varias carpetas a la vez; cada carpeta se convierte en un grupo del proyecto y se conservan los estilos `.qml`.
+  - Vectoriales: Shapefile, GeoPackage, SpatiaLite, GeoJSON, KML, GML, FlatGeobuf, MapInfo, DXF y GPX.
+  - Ráster: GeoTIFF, ECW, JPEG2000, ASCII Grid, IMG, VRT, PNG/JPG georreferenciados y MrSID.
+- **Formato de salida**: un solo GeoPackage + GeoTIFF (recomendado), un GeoPackage por capa o conservar el original. Reproyección al SRC del proyecto opcional.
+- **Zona de trabajo**: recorta todas las capas por una capa de polígonos (o sus elementos seleccionados) o un rectángulo, con margen en metros.
+- **Servicios web** WMS, WMTS y WFS: tus **favoritos**, tus **conexiones de QGIS** y un **catálogo** de servicios oficiales (IGN, Catastro, IGME, comunidades autónomas) que se revisa solo.
+- **Composiciones de impresión** del proyecto abierto o de plantillas `.qpt`, con los mapas centrados en la zona.
+- **Configuraciones guardadas** para repetir un tipo de proyecto con un clic.
+- Exportación en segundo plano, con progreso y cancelación. Las capas se añaden ocultas para que el proyecto abra rápido.
+
+### Instalación
+- Desde QGIS: *Complementos → Administrar e instalar complementos*, busca **ProjectBuilder**.
+- O descarga el ZIP de [Releases](https://github.com/FGomezLosada/ProjectBuilder/releases) y usa *Instalar a partir de ZIP*.
+
+### Uso
+**Configuración** (arriba): elige una configuración guardada para rellenar el panel, o guarda la actual con 💾.
+
+1. **Capas**: pulsa *Añadir carpeta…* (tantas veces como orígenes necesites) y marca las capas o carpetas (☑). La caja de búsqueda filtra; los GeoPackage se despliegan para elegir capas sueltas. Elige el **formato de salida**.
+2. **Servicios web** (opcional): activa la sección y marca las capas. Despliega un servicio para ver sus capas; **★** guarda una capa en Favoritos y **+** crea una conexión nueva en QGIS.
 
    ![Servicios web](docs/captura_servicios.png)
-3. **Proyecto**: nombre, carpeta de destino (se crea si no existe; no puede ser ninguna de las de origen ni estar dentro de ellas) y SRC.
-   Por defecto **todas las capas se reproyectan a ese SRC**; si desmarcas la casilla, cada capa conserva su SRC original y QGIS las reproyecta al vuelo.
-4. Revisa el resumen bajo el formulario (capas, WMS, formato y ruta del `.qgz`) y pulsa **Crear proyecto**. Al terminar, el mensaje verde permite abrirlo directamente. **Limpiar** vacía el formulario para preparar otro proyecto.
+3. **Zona de trabajo** (opcional): elige una capa de polígonos (o solo sus elementos seleccionados) o un rectángulo (extensión del mapa, de una capa o dibujado), y un margen en metros. Todo se recorta por esa zona y el proyecto se abre en ella.
+4. **Proyecto**: nombre, carpeta de destino (se crea si no existe; no puede ser ninguna de las de origen ni estar dentro de ellas), SRC y composiciones de impresión. En el cajetín puedes usar `[% @project_title %]`: se rellena con el nombre del proyecto.
+5. Revisa el resumen y pulsa **Crear proyecto**. Al terminar, el mensaje verde permite abrirlo. **Limpiar** vacía el formulario.
 
-Las capas se añaden ocultas para que el proyecto abra rápido.
+### Servicios siempre al día
+El plugin comprueba sus servicios una vez por semana (en segundo plano): los que no responden se desactivan temporalmente (⛔), corrige los cambios de dirección más habituales y descarga el catálogo más reciente de este repositorio.
+Para ampliar el catálogo, edita `services.json` (grupos con `nombre` y `servicios`; cada servicio con `name`, `url`, `type` y opcionalmente `layer`) o propón uno en [Issues](https://github.com/FGomezLosada/ProjectBuilder/issues).
 
-## Añadir servicios
-Lo más sencillo: crea la conexión en QGIS (botón **+**) y marca sus capas con **★**.
-Para ampliar el catálogo del plugin, edita `services.json`: cada grupo tiene `nombre` y `servicios`; cada servicio, `name`, `url`,
-`type` (`wms`, `wmts` o `wfs`) y opcionalmente `layer` (si se omite, el servicio se despliega para elegir capa).
-
-## Servicios siempre al día
-El plugin comprueba sus servicios una vez por semana (en segundo plano): los que no responden se desactivan temporalmente (⛔),
-corrige solo los cambios de dirección más habituales y descarga la versión más reciente del catálogo publicada en este repositorio.
-
-## Desarrollo
-Ver [`docs/DESARROLLO.md`](docs/DESARROLLO.md). Prueba rápida desde la consola de Python de QGIS:
+### Desarrollo
+Ver [`docs/DESARROLLO.md`](docs/DESARROLLO.md) y el [historial de versiones](CHANGELOG.md). Pruebas desde la consola de Python de QGIS:
 ```python
 exec(open(r"RUTA\ProjectBuilder\tests\smoke_test.py", encoding="utf-8").read())
 ```
+El ZIP para publicar se genera con `python tools/package.py`.
 
-## Autor y licencia
-Francisco Gómez Losada · pgomezlosada@gmail.com · GNU GPL v2 o posterior.
+### Autor y licencia
+Francisco Gómez Losada · pgomezlosada@gmail.com · [GNU GPL v2 o posterior](LICENSE).
 Origen: Trabajo Fin de Máster (2023).

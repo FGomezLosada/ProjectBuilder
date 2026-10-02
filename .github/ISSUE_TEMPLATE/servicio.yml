@@ -1,0 +1,19 @@
+name: "Servicio web caído o nuevo / Web service down or new"
+description: "Un servicio del catálogo no funciona, o propones uno nuevo / A catalogue service is broken, or a new one"
+labels: ["catálogo"]
+body:
+  - type: input
+    id: nombre
+    attributes:
+      label: "Servicio / Service"
+      placeholder: "p. ej. Ortofoto PNOA máxima actualidad"
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: "Dirección (URL) / URL"
+  - type: textarea
+    id: detalle
+    attributes:
+      label: "Detalle / Details"

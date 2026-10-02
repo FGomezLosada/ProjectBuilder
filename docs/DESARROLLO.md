@@ -19,7 +19,7 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 | Valores recordados entre sesiones | Últimas carpetas de capas y de proyecto, último SRC (QSettings, prefijo `project_builder/`) |
 | SRC | Casilla "Reproyectar todas las capas a este SRC" (marcada por defecto). Desmarcada: cada capa conserva su SRC original y el proyecto reproyecta al vuelo |
 | Servicios web | Árbol con ★ Favoritos (perfil del usuario: `<perfil QGIS>/project_builder/favoritos.json`), Mis conexiones de QGIS (solo lectura, agrupadas por tipo) y Catálogo (`services.json`, con grupos). Las capas de un servicio se piden al desplegarlo (GetCapabilities asíncrono, 20 s máx.) |
-| Rama de trabajo | `fase4` (v0.4.0 publicada en `main` con etiqueta) |
+| Rama de trabajo | `main` (una sola rama; cada versión publicada lleva su etiqueta `vX.Y.Z`) |
 
 ## Convenciones de código
 - Importar Qt **siempre** desde `qgis.PyQt` (nunca `PyQt5`/`PyQt6` directamente).
@@ -50,7 +50,7 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fases 1-3, v0.4.0).
 
 ## Entorno de pruebas
-- Repo: `%USERPROFILE%\Documents\dev\ProjectBuilder` (rama `qgis4`)
+- Repo: `%USERPROFILE%\Documents\dev\ProjectBuilder` (rama `main`)
 - Enlazado (`mklink /J`) como `project_builder` en `%APPDATA%\QGIS\QGIS3\...\plugins` y `QGIS4\...\plugins` (perfil `default`)
 - Recargar con Plugin Reloader o reiniciando QGIS
 
@@ -145,4 +145,12 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | V7 | Informe final: capas exportadas, tamaño, tiempo, problemas, botones "Abrir proyecto" y "Abrir carpeta" | Cierre claro del proceso |
 | V8 | Arrastrar carpetas o ficheros desde el Explorador de Windows al árbol | Añadir orígenes más rápido |
 | V9 | Icono nuevo en SVG y botón de ayuda que abre el README | Imagen más profesional |
+
+## Publicación de una versión
+1. Subir `version=` y añadir la línea del `changelog` en `metadata.txt` (y en `CHANGELOG.md`).
+2. Pasar las pruebas (`tests/*_test.py`) en QGIS 3.40 y QGIS 4.
+3. `git commit`, `git tag vX.Y.Z`, `git push && git push --tags`.
+4. La GitHub Action `publicar-version.yml` genera el ZIP (`tools/package.py`) y crea la *Release* de GitHub con él.
+5. Subir ese ZIP a https://plugins.qgis.org/ (con el OSGeo ID): *My plugins* → la del plugin → *Add version*.
+El ZIP solo lleva lo necesario para el plugin (lista en `tools/package.py`): nada de tests, docs, .git ni __pycache__.
 

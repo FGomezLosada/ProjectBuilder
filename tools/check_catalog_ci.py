@@ -51,7 +51,6 @@ RECORDATORIO = [
     "   git commit -m \"fix: actualiza servicios del catálogo\"",
     "   git push",
     "   ```",
-    "5. Vuelve a la rama de trabajo: `git switch fase4 && git merge main`",
     "",
     "## Recordatorio: qué hacer en GitHub",
     "",

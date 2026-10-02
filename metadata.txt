@@ -3,9 +3,9 @@ name=ProjectBuilder
 qgisMinimumVersion=3.34
 qgisMaximumVersion=4.99
 supportsQt6=True
-description=Crea un proyecto de QGIS con una selección previa de capas y servicios web (WMS, WMTS, WFS)
-about=Genera un proyecto de QGIS a partir de una serie de parámetros: origen, selección y destino de las capas; servicios web (favoritos, conexiones de QGIS y catálogo de servicios públicos españoles); nombre, SRC y carpeta del proyecto. Las capas se copian a un GeoPackage único, un GeoPackage por capa o su formato original, con reproyección opcional y recorte por una zona de trabajo. Permite añadir composiciones de impresión y guardar configuraciones para repetirlas con un clic.
-version=0.6.0
+description=Builds a ready-to-use QGIS project from a selection of local layers and web services (WMS, WMTS, WFS)
+about=Creates a QGIS project (.qgz) in a few clicks: pick local layers from one or more folders, web services (your favourites, your QGIS connections or a built-in catalogue of Spanish public services: IGN, Cadastre, IGME, regional SDIs), the CRS and the destination folder. Layers are copied into a single GeoPackage, one GeoPackage per layer or their original format, optionally reprojected and clipped to a work area (polygon layer, selected features or rectangle, with a buffer). Print layouts from the open project or from .qpt templates can be added, and the whole form can be saved as a reusable configuration. No external dependencies. User interface in Spanish.
+version=0.6.1
 author=Francisco Gómez Losada
 email=pgomezlosada@gmail.com
 
@@ -14,6 +14,7 @@ repository=https://github.com/FGomezLosada/ProjectBuilder
 homepage=https://github.com/FGomezLosada/ProjectBuilder
 
 changelog=
+    0.6.1 - Preparado para el repositorio oficial de QGIS: descripción en inglés, licencia GPL, README bilingüe, historial de versiones y empaquetado automático.
     0.6.0 - Zona de trabajo: recorte de todas las capas por una capa de polígonos (o sus elementos seleccionados) o un rectángulo, con margen en metros; el proyecto se abre en la zona. Composiciones de impresión del proyecto abierto o de plantillas .qpt, con los mapas centrados en la zona. Configuraciones guardadas para rellenar el panel con un clic. Corrige un cierre de QGIS 4 al quitar capas con el panel abierto.
     0.5.0 - Salida a un GeoPackage único (por defecto), uno por capa o formato original. Más formatos (GeoJSON, KML, FlatGeobuf, ASC...). Varias carpetas de origen. Reproyección opcional. Panel con secciones plegables, filtro, resumen en vivo e iconos nativos. Servicios WMS, WMTS y WFS: favoritos, conexiones de QGIS y catálogo con 71 servicios. Revisión automática semanal de los servicios y catálogo actualizable desde GitHub.
     0.4.0 - Lógica separada en core/, exportación en segundo plano con progreso, árbol con casillas, proyecto .qgz con rutas relativas, botón para abrir el proyecto, servicios en services.json y proyectos solo con WMS.
