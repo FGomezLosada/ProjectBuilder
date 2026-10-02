@@ -80,8 +80,12 @@ tests/         datos de prueba y scripts para la consola de QGIS
 - Para añadir uno: incluir su extensión en VECTOR_EXTENSIONS/RASTER_EXTENSIONS (y en KEEP_* si GDAL lo escribe)
 
 ## Datos de prueba
-`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
+`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
 `tests/check_catalog.py` (comprueba que los 71 servicios del catálogo responden y que sus capas existen; ejecutarlo de vez en cuando). También vía MCP de QGIS 3.40.
+Si una prueba larga se lanza por el MCP, conviene hacerlo con `QTimer.singleShot` y guardar la salida en un fichero:
+así la llamada no espera a que termine (el MCP corta a los 60 s).
+Ráster + zona: recortar y reproyectar en un solo gdalwarp crea un ráster gigantesco (aplica la resolución en grados
+como si fueran metros); por eso se recorta primero en el SRC original y después se reproyecta.
 Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 
 ## Mantenimiento automático de los servicios
@@ -116,7 +120,7 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | 4.1 ✅ | Búsqueda/filtrado en el árbol + capas internas de GeoPackage como hijos | TFM + prueba QGIS 4 |
 | 4.2 ✅ | Más formatos, formato de salida a elegir (incl. un solo GeoPackage) y varias carpetas de origen | TFM + petición |
 | 4.3 ✅ | Servicios web: ★ Favoritos + conexiones de QGIS + catálogo (17 grupos, 71 servicios comprobados); WMS, WMTS y WFS; aviso ⚠ en servicios pesados | TFM + petición |
-| 4.4 | Recorte previo por capa, buffer o BBOX | TFM |
+| 4.4 ✅ | Zona de trabajo: recorte por capa (o elementos seleccionados) o rectángulo, con margen en metros; vectoriales cortados por el borde, ráster por máscara, capas vacías avisadas, vista inicial en la zona | TFM |
 | 4.5 | Plantilla de composición `.qpt` | TFM |
 | 4.6 | Estadísticas de las capas seleccionadas | TFM |
 | 4.7 | Conexión a base de datos (PostGIS) como origen de capas | TFM |

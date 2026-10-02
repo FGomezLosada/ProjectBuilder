@@ -14,6 +14,7 @@ import os
 import unicodedata
 
 from qgis.core import Qgis, QgsApplication, QgsCoordinateReferenceSystem, QgsNetworkAccessManager, QgsProject
+from qgis.gui import QgsExtentWidget
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtCore import QSettings, Qt, QTimer, QUrl
 from qgis.PyQt.QtGui import QFont
@@ -22,6 +23,7 @@ from qgis.PyQt.QtWidgets import QAbstractItemView, QFileDialog, QMenu, QMessageB
 
 from .core import project as qgis_project
 from .core import services as svc
+from .core.clip import ZONE_TABLE, ZoneError, apply_margin, geometry_from_extent, geometry_from_layer, view_extent, write_zone
 from .core.capabilities import detect_type, parse_capabilities
 from .core.health import HealthTask, check_due
 from .core.formats import (
@@ -143,6 +145,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.apply_favorites_default()
         self.load_last_crs()
         self.selectProjection.crsChanged.connect(self.remember_crs)
+        self.setup_zone()
 
         # Resumen en vivo de lo que se va a generar. Se recalcula con un pequeño retardo: al marcar una carpeta
         # Qt avisa una vez por cada elemento que cambia, y así se calcula una sola vez al final.
@@ -152,8 +155,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.summaryTimer.timeout.connect(self.update_summary)
         for senal in (self.treeWidget.itemChanged, self.servicesTree.itemChanged, self.addWMS.toggled,
                       self.outputFormat.currentIndexChanged, self.nameProject.textChanged, self.pathFolderProject.textChanged,
-                      self.reprojectCheck.toggled, self.selectProjection.crsChanged):
-            senal.connect(lambda *args: self.summaryTimer.start())
+                      self.reprojectCheck.toggled, self.selectProjection.crsChanged, self.groupZone.toggled,
+                      self.zoneByLayer.toggled, self.zoneLayer.layerChanged, self.zoneSelected.toggled,
+                      self.zoneMargin.valueChanged):
+            senal.connect(self.schedule_summary)
         self.update_summary()
 
     def load_last_crs(self):
@@ -169,6 +174,63 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if crs.isValid():
             QSettings().setValue(SETTINGS + 'last_crs', crs.authid() or crs.toWkt())
 
+    # ------------------------------------------------------------------ Zona de trabajo (recorte)
+
+    def setup_zone(self):
+        """Prepara la sección 3: capa de polígonos o rectángulo (con el selector de extensión nativo de QGIS)."""
+        filtro = getattr(Qgis, 'LayerFilter', None)  #QGIS 3.34+; en versiones anteriores estaba en QgsMapLayerProxyModel
+        if filtro is None:
+            from qgis.core import QgsMapLayerProxyModel
+            filtro = QgsMapLayerProxyModel.Filter
+        self.zoneLayer.setFilters(filtro.PolygonLayer)  #Solo capas de polígonos
+        self.zoneLayer.setAllowEmptyLayer(True)
+        # Selector de rectángulo: extensión actual del mapa, de una capa o dibujado en el mapa (menú del botón ▾)
+        self.zoneExtent = QgsExtentWidget(self, QgsExtentWidget.WidgetStyle.CondensedStyle)
+        self.zoneExtentLayout.addWidget(self.zoneExtent)
+        lienzo = self.iface.mapCanvas()
+        if lienzo is not None:
+            self.zoneExtent.setMapCanvas(lienzo)
+            crs = lienzo.mapSettings().destinationCrs()
+            self.zoneExtent.setOutputCrs(crs)
+            self.zoneExtent.setCurrentExtent(lienzo.extent(), crs)
+            self.zoneExtent.setOriginalExtent(lienzo.extent(), crs)
+        self.zoneExtent.extentChanged.connect(self.schedule_summary)
+        self.zoneMargin.setClearValue(0)
+        self.zoneByLayer.toggled.connect(self.update_zone_widgets)
+        self.update_zone_widgets()
+
+    def schedule_summary(self, *args):
+        """
+        Pide recalcular el resumen (con un pequeño retardo). Es un método y no un lambda a propósito: Qt desconecta
+        solo los métodos cuando el panel se cierra; un lambda podría ejecutarse con el panel ya destruido y cerrar QGIS 4.
+        """
+        if hasattr(self, 'summaryTimer'):
+            self.summaryTimer.start()
+
+    def update_zone_widgets(self):
+        """Activa solo los campos del tipo de zona elegido (capa o rectángulo)."""
+        por_capa = self.zoneByLayer.isChecked()
+        for widget in (self.zoneLayerLabel, self.zoneLayer, self.zoneSelected):
+            widget.setEnabled(por_capa)
+        for widget in (self.zoneExtentLabel, self.zoneExtentHolder):
+            widget.setEnabled(not por_capa)
+
+    def build_zone(self):
+        """
+        Calcula la zona de trabajo (con su margen) y la guarda en un GeoPackage temporal.
+        Se hace antes de exportar, en primer plano: hay que leer la capa abierta en QGIS.
+        Devuelve (GeoPackage de la zona, extensión inicial del proyecto) o (None, None) si la sección no está activada.
+        Lanza ZoneError si falta algo.
+        """
+        if not self.groupZone.isChecked():
+            return None, None
+        if self.zoneByLayer.isChecked():
+            geometria, crs = geometry_from_layer(self.zoneLayer.currentLayer(), self.zoneSelected.isChecked())
+        else:
+            geometria, crs = geometry_from_extent(self.zoneExtent.outputExtent(), self.zoneExtent.outputCrs())
+        geometria, crs = apply_margin(geometria, crs, self.zoneMargin.value(), self.selectProjection.crs())
+        return write_zone(geometria, crs), view_extent(geometria, crs, self.selectProjection.crs())
+
     def warn(self, message):
         """Muestra un aviso al usuario."""
         QMessageBox.warning(self, "Error", message)
@@ -182,6 +244,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.outputFormat.setCurrentIndex(0)  #Modo recomendado
         self.reprojectCheck.setChecked(True)
         self.addWMS.setChecked(False)
+        self.groupZone.setChecked(False)
+        self.zoneByLayer.setChecked(True)
+        self.zoneSelected.setChecked(False)
+        self.zoneMargin.setValue(0)
+        self.zoneAddLayer.setChecked(True)
         self.servicesFilter.clear()
         for item in self._service_leaves():
             item.setCheckState(0, Qt.CheckState.Unchecked)
@@ -332,6 +399,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 partes.append(f"reproyectadas a {self.selectProjection.crs().authid() or 'SRC del proyecto'}")
             else:
                 partes.append("en su SRC original")
+            if self.groupZone.isChecked():
+                margen = int(self.zoneMargin.value())
+                partes.append("recortadas a la zona" + (f" (+{margen} m)" if margen else ""))
         texto = " · ".join(partes)
         nombre, carpeta = self.nameProject.text().strip(), self.pathFolderProject.text().strip()
         if nombre and carpeta:
@@ -623,16 +693,24 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 return f"La carpeta del proyecto no puede ser una carpeta de capas ni estar dentro de ella:\n{carpeta}"
         return None
 
-    def build_jobs(self, folder_project, name, mode):
+    def build_jobs(self, folder_project, name, mode, zone=None):
         """
         Prepara la lista de trabajos (Job) a partir de lo marcado en el árbol.
         - Cada carpeta añadida es un grupo del proyecto (y, en los modos de ficheros sueltos, una subcarpeta).
         - En el modo "un solo GeoPackage", todos los vectoriales van como tablas de <nombre>.gpkg.
+        - zone: GeoPackage de la zona de trabajo; si se pide, se añade como primera capa (sin recortarla).
         """
         gpkg = os.path.join(folder_project, name + '.gpkg')
         nombres_raiz = {}  #Carpeta raíz -> nombre de grupo/subcarpeta (único, por si dos carpetas se llaman igual)
         raices_usadas, tablas_usadas, rutas_usadas = set(), set(), set()
         jobs = []
+        if zone and self.zoneAddLayer.isChecked():  #La zona va en la raíz del proyecto, con su estilo de contorno rojo
+            tablas_usadas.add(ZONE_TABLE)
+            rutas_usadas.add(os.path.join(folder_project, ZONE_TABLE).lower())
+            if mode == SINGLE:
+                jobs.append(Job(zone, gpkg, (), tables={ZONE_TABLE: ZONE_TABLE}, qml=style_path(zone), clip=False, zone=True))
+            else:
+                jobs.append(Job(zone, os.path.join(folder_project, ZONE_TABLE + '.gpkg'), (), clip=False, zone=True))
         for raiz, path_source, layers in self.selected_sources():
             if raiz not in nombres_raiz:
                 nombres_raiz[raiz] = nombre_unico(os.path.basename(os.path.normpath(raiz)) or 'capas', raices_usadas)
@@ -685,10 +763,14 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 os.remove(gpkg)  #Se empieza con un GeoPackage limpio (si no, se mezclarían tablas de un proyecto anterior)
             except OSError:
                 return self.warn(f"No se puede sobrescribir {gpkg}.\n¿Está abierto en QGIS? Ciérralo o elige otro nombre.")
-        jobs = self.build_jobs(folder_project, name, self.outputFormat.currentData())
+        try:
+            zone, self.zone_extent = self.build_zone()  #Zona de trabajo (None si la sección 3 no está activada)
+        except ZoneError as e:
+            return self.warn(str(e))
+        jobs = self.build_jobs(folder_project, name, self.outputFormat.currentData(), zone)
 
         crs = self.selectProjection.crs() if self.reprojectCheck.isChecked() else None  #None: se copian en su SRC original
-        self.task = ExportTask(jobs, crs)
+        self.task = ExportTask(jobs, crs, zone)
         if background:
             self.createProject.setEnabled(False)  #Evita lanzar dos veces la creación mientras se exporta
             self.resetButton.setEnabled(False)
@@ -713,9 +795,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for output in task.outputs:
             try:
                 if output.tables:  #Tablas del GeoPackage común
-                    qgis_project.add_geopackage_tables(project, output.path, output.tables, output.group, output.qml)
+                    capas = qgis_project.add_geopackage_tables(project, output.path, output.tables, output.group, output.qml)
                 else:
-                    qgis_project.add_layer(project, output.path, output.group)
+                    capas = qgis_project.add_layer(project, output.path, output.group)
+                if output.zone:
+                    qgis_project.put_on_top(project, capas)  #El contorno de la zona, visible y por encima de todo
             except ValueError as e:
                 errors.append(str(e))
 
@@ -728,6 +812,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 except ValueError as e:
                     errors.append(str(e))
 
+        if getattr(self, 'zone_extent', None) is not None:
+            qgis_project.set_view_extent(project, self.zone_extent)  #Al abrirlo se ve la zona (y los WFS solo piden esa zona)
         try:
             path_file = qgis_project.save_project(project)
         except OSError as e:
@@ -735,12 +821,15 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         if errors:
             self.warn("El proyecto se ha creado, pero con estos problemas:\n\n- " + "\n- ".join(errors))
-        self.show_success(path_file)
+        self.show_success(path_file, task.empty)
 
-    def show_success(self, path_file):
+    def show_success(self, path_file, empty=()):
         """Mensaje de que se ha creado el proyecto, con un botón para abrirlo en QGIS."""
         bar = self.iface.messageBar()
-        message = bar.createMessage("ProjectBuilder", f"Proyecto creado: {path_file}")
+        texto = f"Proyecto creado: {path_file}"
+        if empty:  #Capas sin nada dentro de la zona de trabajo: no se han añadido (no es un error)
+            texto += f"  ·  {len(empty)} capa{'s' if len(empty) != 1 else ''} sin datos en la zona: {', '.join(empty)}"
+        message = bar.createMessage("ProjectBuilder", texto)
         button = QPushButton("Abrir proyecto")
         button.clicked.connect(lambda: self.iface.addProject(path_file))  #QGIS pregunta antes si hay que guardar el proyecto actual
         message.layout().addWidget(button)

@@ -141,10 +141,86 @@
           </layout>
          </widget>
         </item>
-        <!-- ============================== 3 · PROYECTO ============================== -->
+        <!-- ============================== 3 · ZONA DE TRABAJO ============================== -->
+        <item>
+         <widget class="QgsCollapsibleGroupBox" name="groupZone">
+          <property name="title"><string>3 · Zona de trabajo (recorte)</string></property>
+          <property name="toolTip"><string>Marca la casilla para recortar todas las capas por una zona (un municipio, un rectángulo...)</string></property>
+          <property name="checkable"><bool>true</bool></property>
+          <property name="checked"><bool>false</bool></property>
+          <property name="saveCollapsedState"><bool>true</bool></property>
+          <layout class="QFormLayout" name="zoneLayout">
+           <item row="0" column="0">
+            <widget class="QLabel" name="zoneTypeLabel"><property name="text"><string>Zona</string></property></widget>
+           </item>
+           <item row="0" column="1">
+            <layout class="QHBoxLayout" name="zoneTypeLayout">
+             <item>
+              <widget class="QRadioButton" name="zoneByLayer">
+               <property name="text"><string>Capa</string></property>
+               <property name="checked"><bool>true</bool></property>
+               <property name="toolTip"><string>Los polígonos de una capa abierta en QGIS (p. ej. un término municipal)</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QRadioButton" name="zoneByExtent">
+               <property name="text"><string>Rectángulo</string></property>
+               <property name="toolTip"><string>La extensión del mapa, la de una capa o un rectángulo dibujado en el mapa</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="zoneLayerLabel"><property name="text"><string>Capa</string></property></widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QgsMapLayerComboBox" name="zoneLayer">
+             <property name="toolTip"><string>Capa de polígonos abierta en QGIS que marca la zona</string></property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QCheckBox" name="zoneSelected">
+             <property name="text"><string>Solo los elementos seleccionados</string></property>
+            </widget>
+           </item>
+           <item row="3" column="0">
+            <widget class="QLabel" name="zoneExtentLabel"><property name="text"><string>Rectángulo</string></property></widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QWidget" name="zoneExtentHolder">
+             <layout class="QHBoxLayout" name="zoneExtentLayout">
+              <property name="leftMargin"><number>0</number></property>
+              <property name="topMargin"><number>0</number></property>
+              <property name="rightMargin"><number>0</number></property>
+              <property name="bottomMargin"><number>0</number></property>
+             </layout>
+            </widget>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="zoneMarginLabel"><property name="text"><string>Margen</string></property></widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QgsDoubleSpinBox" name="zoneMargin">
+             <property name="toolTip"><string>Amplía la zona estos metros alrededor (0 = sin margen)</string></property>
+             <property name="suffix"><string> m</string></property>
+             <property name="decimals"><number>0</number></property>
+             <property name="maximum"><double>100000</double></property>
+             <property name="singleStep"><double>100</double></property>
+            </widget>
+           </item>
+           <item row="5" column="0" colspan="2">
+            <widget class="QCheckBox" name="zoneAddLayer">
+             <property name="text"><string>Añadir la zona al proyecto como capa</string></property>
+             <property name="checked"><bool>true</bool></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <!-- ============================== 4 · PROYECTO ============================== -->
         <item>
          <widget class="QgsCollapsibleGroupBox" name="groupProject">
-          <property name="title"><string>3 · Proyecto</string></property>
+          <property name="title"><string>4 · Proyecto</string></property>
           <property name="saveCollapsedState"><bool>true</bool></property>
           <layout class="QFormLayout" name="projectLayout">
            <item row="0" column="0">
@@ -237,6 +313,16 @@ Desmarcado: cada capa se copia en su SRC original; el proyecto usa este SRC y QG
   <customwidget>
    <class>QgsProjectionSelectionWidget</class>
    <extends>QWidget</extends>
+   <header>qgis.gui</header>
+  </customwidget>
+  <customwidget>
+   <class>QgsMapLayerComboBox</class>
+   <extends>QComboBox</extends>
+   <header>qgis.gui</header>
+  </customwidget>
+  <customwidget>
+   <class>QgsDoubleSpinBox</class>
+   <extends>QDoubleSpinBox</extends>
    <header>qgis.gui</header>
   </customwidget>
  </customwidgets>

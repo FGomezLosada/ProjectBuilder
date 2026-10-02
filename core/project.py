@@ -139,3 +139,24 @@ def add_service(project, group, service):
     project.addMapLayer(layer, False)
     _add_to_tree(group, layer, position=-1)
     return layer
+
+
+def set_view_extent(project, extent):
+    """Vista inicial del proyecto (QgsReferencedRectangle): al abrirlo, el mapa aparece centrado en la zona de trabajo."""
+    project.viewSettings().setDefaultViewExtent(extent)
+
+
+def put_on_top(project, layers):
+    """
+    Lleva las capas a lo alto del árbol de capas y las deja visibles (se usa con la zona de trabajo,
+    para que al abrir el proyecto se vea el contorno de la zona por encima de todo).
+    """
+    root = project.layerTreeRoot()
+    for layer in reversed(layers):
+        node = root.findLayer(layer.id())
+        if node is None:
+            continue
+        copia = node.clone()
+        copia.setItemVisibilityChecked(True)
+        root.insertChildNode(0, copia)
+        node.parent().removeChildNode(node)
