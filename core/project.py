@@ -23,6 +23,7 @@ def create_project(folder, name, crs):
     project.setFileName(os.path.join(folder, name + '.qgz'))  #.qgz: formato recomendado (zip con el .qgs y sus datos auxiliares)
     project.setFilePathStorage(Qgis.FilePathType.Relative)  #Rutas relativas: el proyecto funciona aunque se mueva la carpeta completa
     project.setCrs(crs)
+    project.setTitle(name)  #Título = nombre: los textos con [% @project_title %] de las composiciones se rellenan solos
     return project
 
 

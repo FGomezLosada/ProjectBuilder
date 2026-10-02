@@ -286,6 +286,46 @@
 Desmarcado: cada capa se copia en su SRC original; el proyecto usa este SRC y QGIS las muestra juntas reproyectando al vuelo.</string></property>
             </widget>
            </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="layoutsLabel">
+             <property name="text"><string>Composiciones</string></property>
+             <property name="toolTip"><string>Composiciones de impresión (con su cajetín) que se copian al proyecto nuevo</string></property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <layout class="QVBoxLayout" name="layoutsLayout">
+             <item>
+              <widget class="QTreeWidget" name="layoutsTree">
+               <property name="headerHidden"><bool>true</bool></property>
+               <property name="maximumSize"><size><width>16777215</width><height>130</height></size></property>
+               <property name="toolTip"><string>Marca las composiciones que quieres en el proyecto nuevo.
+Sus mapas se centran en la zona de trabajo (o en todas las capas) y usan el SRC del proyecto.
+En los textos del cajetín puedes usar [% @project_title %] (nombre del proyecto) o [% format_date(now(), 'dd/MM/yyyy') %].</string></property>
+               <column><property name="text"><string>Composiciones</string></property></column>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="layoutsButtonsLayout">
+               <item>
+                <widget class="QToolButton" name="addLayoutButton">
+                 <property name="text"><string>Añadir plantilla .qpt…</string></property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QToolButton" name="removeLayoutButton">
+                 <property name="toolTip"><string>Quitar de la lista la plantilla .qpt en la que has hecho clic (el fichero no se borra)</string></property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="layoutsSpacer">
+                 <property name="orientation"><enum>Qt::Horizontal</enum></property>
+                 <property name="sizeHint" stdset="0"><size><width>10</width><height>10</height></size></property>
+                </spacer>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </item>
           </layout>
          </widget>
         </item>

@@ -38,6 +38,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from .core import configs
+from .core import layouts
 from .core import project as qgis_project
 from .core import services as svc
 from .core.clip import ZONE_TABLE, ZoneError, apply_margin, geometry_from_extent, geometry_from_layer, view_extent, write_zone
@@ -79,6 +80,7 @@ PATH_ROLE = Qt.ItemDataRole.UserRole  #Donde se guarda la ruta en cada elemento 
 KIND_ROLE = Qt.ItemDataRole.UserRole + 1  #Tipo de elemento (carpeta, vectorial, multicapa, ráster)
 LAYER_ROLE = Qt.ItemDataRole.UserRole + 2  #Nombre de la capa interna (solo en las capas de un fichero multicapa)
 SERVICE_ROLE = Qt.ItemDataRole.UserRole + 3  #Servicio web (diccionario) de cada elemento del árbol de servicios
+LAYOUT_ROLE = Qt.ItemDataRole.UserRole + 5  #Composición de cada elemento de la lista: ['proyecto', nombre] o ['fichero', ruta]
 NODE_ROLE = Qt.ItemDataRole.UserRole + 4  #Tipo de nodo del árbol de servicios: raíz, grupo, servicio (desplegable) o capa
 SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
 
@@ -164,6 +166,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.load_last_crs()
         self.selectProjection.crsChanged.connect(self.remember_crs)
         self.setup_zone()
+        self.setup_layouts()
         self.setup_configs()
 
         # Resumen en vivo de lo que se va a generar. Se recalcula con un pequeño retardo: al marcar una carpeta
@@ -192,6 +195,122 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def remember_crs(self, crs):
         if crs.isValid():
             QSettings().setValue(SETTINGS + 'last_crs', crs.authid() or crs.toWkt())
+
+    # ------------------------------------------------------------------ Composiciones de impresión (4.5)
+
+    def setup_layouts(self):
+        """Lista de composiciones: las del proyecto abierto, mis plantillas .qpt y las plantillas del perfil de QGIS."""
+        self.addLayoutButton.setIcon(QgsApplication.getThemeIcon('/mActionFileOpen.svg'))
+        self.addLayoutButton.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.removeLayoutButton.setIcon(QgsApplication.getThemeIcon('/symbologyRemove.svg'))
+        self.addLayoutButton.clicked.connect(self.add_layout_file)
+        self.removeLayoutButton.clicked.connect(self.remove_layout_file)
+        self.layoutsTree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.layoutsTree.itemChanged.connect(self.schedule_summary)
+        # Si en QGIS se abre otro proyecto o se crea/borra una composición, la lista se actualiza sola
+        proyecto = QgsProject.instance()
+        proyecto.readProject.connect(self.load_layouts_tree)
+        proyecto.cleared.connect(self.load_layouts_tree)
+        proyecto.layoutManager().layoutAdded.connect(self.load_layouts_tree)
+        proyecto.layoutManager().layoutRemoved.connect(self.load_layouts_tree)
+        self.load_layouts_tree()
+
+    @staticmethod
+    def _layout_files():
+        """Plantillas .qpt añadidas con el botón (se recuerdan entre sesiones de QGIS)."""
+        valor = QSettings().value(SETTINGS + 'layout_files', [])
+        return [valor] if isinstance(valor, str) else list(valor or [])
+
+    @staticmethod
+    def _set_layout_files(rutas):
+        QSettings().setValue(SETTINGS + 'layout_files', rutas)
+
+    def load_layouts_tree(self, *args):
+        """Rellena la lista de composiciones conservando lo que ya estuviera marcado."""
+        marcadas = set(self.selected_layouts())
+        self.layoutsTree.blockSignals(True)
+        self.layoutsTree.clear()
+        bloques = [
+            ("Del proyecto abierto", [('proyecto', n, n) for n in layouts.project_layouts(QgsProject.instance())]),
+            ("Mis plantillas .qpt", [('fichero', r, os.path.splitext(os.path.basename(r))[0])
+                                     for r in self._layout_files() if os.path.isfile(r)]),
+            ("Plantillas de QGIS", [('fichero', r, os.path.splitext(os.path.basename(r))[0])
+                                    for r in layouts.qgis_templates()]),
+        ]
+        for titulo, elementos in bloques:
+            if not elementos:
+                continue
+            raiz = QTreeWidgetItem(self.layoutsTree, [titulo])
+            raiz.setFlags(raiz.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
+            for tipo, valor, texto in elementos:
+                item = QTreeWidgetItem(raiz, [texto])
+                item.setData(0, LAYOUT_ROLE, [tipo, valor])
+                item.setToolTip(0, valor if tipo == 'fichero' else f"Composición «{valor}» del proyecto abierto en QGIS")
+                item.setIcon(0, QgsApplication.getThemeIcon('/mIconLayout.svg'))
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(0, Qt.CheckState.Checked if (tipo, valor) in marcadas else Qt.CheckState.Unchecked)
+            raiz.setExpanded(True)
+        if not self.layoutsTree.topLevelItemCount():
+            aviso = QTreeWidgetItem(self.layoutsTree, ["Sin composiciones: usa «Añadir plantilla .qpt…»"])
+            aviso.setDisabled(True)
+        self.layoutsTree.blockSignals(False)
+        self.schedule_summary()
+
+    def _layout_items(self):
+        return [raiz.child(i) for raiz in (self.layoutsTree.topLevelItem(j) for j in range(self.layoutsTree.topLevelItemCount()))
+                for i in range(raiz.childCount())]
+
+    def selected_layouts(self):
+        """Composiciones marcadas, como (tipo, valor): ('proyecto', nombre) o ('fichero', ruta). Sin repetir."""
+        vistas = []
+        for item in self._layout_items():
+            clave = tuple(item.data(0, LAYOUT_ROLE))
+            if item.checkState(0) == Qt.CheckState.Checked and clave not in vistas:
+                vistas.append(clave)
+        return vistas
+
+    def check_layouts(self, claves):
+        """Marca las composiciones indicadas [(tipo, valor)] y desmarca el resto."""
+        claves = {tuple(c) for c in claves}
+        for item in self._layout_items():
+            marcar = tuple(item.data(0, LAYOUT_ROLE)) in claves
+            item.setCheckState(0, Qt.CheckState.Checked if marcar else Qt.CheckState.Unchecked)
+
+    def add_layout_file(self, ruta=None):
+        """Añade una plantilla .qpt de cualquier carpeta a «Mis plantillas .qpt» (y la deja marcada)."""
+        if not ruta:
+            ruta, _ = QFileDialog.getOpenFileName(self, "Añadir plantilla de composición", self._last_dir('last_layout_dir'),
+                                                  "Plantillas de composición (*.qpt)")
+        if not ruta:
+            return
+        self._remember_dir('last_layout_dir', os.path.dirname(ruta))
+        rutas = [r for r in self._layout_files() if os.path.normcase(r) != os.path.normcase(ruta)]
+        self._set_layout_files([ruta, *rutas])
+        marcadas = [*self.selected_layouts(), ('fichero', ruta)]
+        self.load_layouts_tree()
+        self.check_layouts(marcadas)
+
+    def remove_layout_file(self):
+        """Quita de la lista la plantilla .qpt en la que se ha hecho clic (no borra el fichero)."""
+        item = self.layoutsTree.currentItem()
+        clave = item.data(0, LAYOUT_ROLE) if item is not None else None
+        if not clave or clave[0] != 'fichero' or clave[1] not in self._layout_files():
+            return self.warn("Haz clic en una plantilla de «Mis plantillas .qpt» para quitarla de la lista")
+        self._set_layout_files([r for r in self._layout_files() if r != clave[1]])
+        self.load_layouts_tree()
+
+    def prepare_layouts(self):
+        """
+        Al pulsar Crear: lista de (plantilla .qpt, nombre) a añadir. Las composiciones del proyecto abierto se copian
+        ya a una plantilla temporal, por si mientras se exportan las capas se cambia de proyecto en QGIS.
+        """
+        trabajos = []
+        for tipo, valor in self.selected_layouts():
+            if tipo == 'proyecto':
+                trabajos.append((layouts.snapshot_layout(QgsProject.instance(), valor), valor))
+            else:
+                trabajos.append((valor, None))
+        return trabajos
 
     # ------------------------------------------------------------------ Configuraciones guardadas (4.9)
 
@@ -309,6 +428,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 'margen': self.zoneMargin.value(),
                 'anadir_capa': self.zoneAddLayer.isChecked(),
             },
+            'composiciones': [list(c) for c in self.selected_layouts()],
         }
 
     def _zone_layer_from_config(self, datos):
@@ -395,6 +515,19 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.zoneMargin.setValue(zona.get('margen', 0))
         self.zoneAddLayer.setChecked(zona.get('anadir_capa', True))
         self.groupZone.setChecked(zona.get('activa', False))
+
+        composiciones = [tuple(c) for c in datos.get('composiciones', [])]
+        for tipo, valor in composiciones:
+            if tipo == 'fichero' and os.path.isfile(valor) and valor not in self._layout_files() \
+                    and valor not in layouts.qgis_templates():
+                self._set_layout_files([valor, *self._layout_files()])  #Plantilla de otra carpeta: se añade a la lista
+        self.load_layouts_tree()
+        self.check_layouts(composiciones)
+        disponibles = {tuple(item.data(0, LAYOUT_ROLE)) for item in self._layout_items()}
+        for tipo, valor in composiciones:
+            if (tipo, valor) not in disponibles:
+                avisos.append(f"No se encuentra la composición «{valor}»" if tipo == 'proyecto'
+                              else f"Ya no existe la plantilla {valor}")
         self.update_summary()
         return avisos
 
@@ -479,6 +612,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if self.config_services:
             self.config_services = []
             self.load_services_tree()
+        self.check_layouts([])
         self.configCombo.setCurrentIndex(0)  #«Elegir una configuración guardada»
         self.apply_favorites_default()
         self.update_summary()
@@ -627,6 +761,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 partes.append(f"reproyectadas a {self.selectProjection.crs().authid() or 'SRC del proyecto'}")
             else:
                 partes.append("en su SRC original")
+            composiciones = len(self.selected_layouts()) if hasattr(self, 'layoutsTree') else 0
+            if composiciones:
+                partes.append(f"{composiciones} composici{'ones' if composiciones != 1 else 'ón'}")
             if self.groupZone.isChecked():
                 margen = int(self.zoneMargin.value())
                 partes.append("recortadas a la zona" + (f" (+{margen} m)" if margen else ""))
@@ -1001,6 +1138,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             zone, self.zone_extent = self.build_zone()  #Zona de trabajo (None si la sección 3 no está activada)
         except ZoneError as e:
             return self.warn(str(e))
+        try:
+            self.layout_jobs = self.prepare_layouts()  #Composiciones a añadir al terminar
+        except layouts.LayoutError as e:
+            return self.warn(str(e))
         jobs = self.build_jobs(folder_project, name, self.outputFormat.currentData(), zone)
 
         crs = self.selectProjection.crs() if self.reprojectCheck.isChecked() else None  #None: se copian en su SRC original
@@ -1026,12 +1167,14 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         project = qgis_project.create_project(self.pathFolderProject.text(), self.nameProject.text().strip(),
                                               self.selectProjection.crs())
         errors = list(task.errors)  #Se acumulan los errores para mostrarlos todos juntos al final
+        anadidas = []  #Capas añadidas (para centrar los mapas de las composiciones si no hay zona de trabajo)
         for output in task.outputs:
             try:
                 if output.tables:  #Tablas del GeoPackage común
                     capas = qgis_project.add_geopackage_tables(project, output.path, output.tables, output.group, output.qml)
                 else:
                     capas = qgis_project.add_layer(project, output.path, output.group)
+                anadidas += capas
                 if output.zone:
                     qgis_project.put_on_top(project, capas)  #El contorno de la zona, visible y por encima de todo
             except ValueError as e:
@@ -1048,6 +1191,16 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         if getattr(self, 'zone_extent', None) is not None:
             qgis_project.set_view_extent(project, self.zone_extent)  #Al abrirlo se ve la zona (y los WFS solo piden esa zona)
+
+        trabajos = getattr(self, 'layout_jobs', [])
+        if trabajos:  #Composiciones: sus mapas, centrados en la zona de trabajo o en todas las capas
+            extension = self.zone_extent if getattr(self, 'zone_extent', None) is not None \
+                else layouts.layers_extent(project, anadidas)
+            for plantilla, nombre in trabajos:
+                try:
+                    layouts.add_layout(project, plantilla, nombre, extension)
+                except layouts.LayoutError as e:
+                    errors.append(str(e))
         try:
             path_file = qgis_project.save_project(project)
         except OSError as e:
