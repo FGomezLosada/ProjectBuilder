@@ -22,8 +22,7 @@ dock_module.ProjectBuilderDockWidget.warn = lambda self, msg: avisos.append(msg)
 
 tmp = tempfile.mkdtemp(prefix="pb_bg_").replace('\\', '/')
 dw = dock_module.ProjectBuilderDockWidget(qgis.utils.iface)
-dw.pathFolder.setText(DATA)
-dw.load_tree(DATA)
+dw.add_source_folder(DATA)
 
 
 def _marcar(item):
@@ -54,7 +53,7 @@ p.read(tmp + "/prueba.qgz")
 print("=" * 60)
 print("QGIS", Qgis.version(), "| carpeta:", tmp)
 print("Errores de la tarea:", _tarea.errors if _tarea else "sin tarea")
-print("Exportadas:", [os.path.basename(x) for x in _tarea.exported] if _tarea else "-")
+print("Exportadas:", [os.path.basename(o.path) for o in _tarea.outputs] if _tarea else "-")
 print("Avisos:", avisos)
 print("Árbol del proyecto:", [n.name() for n in p.layerTreeRoot().children()])
 print("Capas:", sorted(lyr.name() for lyr in p.mapLayers().values()))

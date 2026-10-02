@@ -4,13 +4,14 @@ import os
 
 from qgis.core import (
     Qgis,
+    QgsLayerTreeGroup,
     QgsLayerTreeLayer,
     QgsProject,
     QgsRasterLayer,
     QgsVectorLayer,
 )
 
-from .formats import extension, style_path, vector_sublayers
+from .formats import MULTILAYER, RASTER, VECTOR, extension, layer_kind, style_path, vector_sublayers
 
 
 def create_project(folder, name, crs):
@@ -32,7 +33,7 @@ def save_project(project):
     return project.fileName()
 
 
-def _add_to_tree(parent, layer, position=0):
+def _add_to_tree(parent, layer, position=-1):
     """Añade una capa al árbol de capas: sin expandir y no visible."""
     node = QgsLayerTreeLayer(layer)
     parent.insertChildNode(position, node)  #El índice indica la posición en el árbol (0 = arriba, -1 = abajo)
@@ -40,32 +41,78 @@ def _add_to_tree(parent, layer, position=0):
     node.setItemVisibilityChecked(False)  #La capa aparece no visible
 
 
-def add_layer(project, path):
+def group_for(project, path):
     """
-    Añade al proyecto la capa (o capas, si es un GeoPackage) del fichero path.
-    Si hay un .qml con el mismo nombre se aplica su estilo. Devuelve la lista de capas añadidas.
+    Devuelve el grupo del árbol de capas indicado por path (p. ej. ('vectorial', 'subcarpeta')),
+    creando los que falten. Así el proyecto refleja la organización de las carpetas de origen.
     """
-    ext = extension(path)
+    group = project.layerTreeRoot()
+    for name in path:
+        child = next((c for c in group.children() if isinstance(c, QgsLayerTreeGroup) and c.name() == name), None)
+        if child is None:
+            child = group.addGroup(name)
+            child.setExpanded(True)
+        group = child
+    return group
+
+
+def _apply_style(layer, qml, save_in_geopackage=False):
+    """Aplica un .qml; si la capa está en un GeoPackage, guarda además el estilo dentro como estilo por defecto."""
+    if not qml or not os.path.isfile(qml):
+        return
+    layer.loadNamedStyle(qml)
+    if save_in_geopackage:
+        try:  # noqa: SIM105 (más legible así)
+            layer.saveStyleToDatabase("default", "ProjectBuilder", True, "")  #Al abrir el GeoPackage en otro proyecto, sale con su estilo
+        except Exception:
+            pass  #Si no se puede guardar dentro, el estilo sigue guardado en el proyecto
+
+
+def add_layer(project, path, group_path=()):
+    """
+    Añade al proyecto la capa (o capas, si el fichero tiene varias) del fichero path, dentro del grupo group_path.
+    Si el fichero tiene una sola capa y hay un .qml con el mismo nombre, se aplica su estilo.
+    Devuelve la lista de capas añadidas.
+    """
     name = os.path.splitext(os.path.basename(path))[0]
-    if ext == '.shp':
-        layers = [QgsVectorLayer(path, name, 'ogr')]
-        layers[0].setProviderEncoding('UTF-8')
-    elif ext == '.gpkg':
-        layers = [QgsVectorLayer(s.uri(), s.name(), 'ogr') for s in vector_sublayers(path)]
-    elif ext == '.tif':
+    kind = layer_kind(path)
+    if kind == RASTER:
         layers = [QgsRasterLayer(path, name)]
+    elif kind in (VECTOR, MULTILAYER):
+        sublayers = vector_sublayers(path)
+        if len(sublayers) == 1 and extension(path) != '.gpkg':  #Una sola capa: se usa el nombre del fichero (en GeoPackage, el de la tabla)
+            layers = [QgsVectorLayer(sublayers[0].uri(), name, 'ogr')]
+        else:
+            layers = [QgsVectorLayer(s.uri(), s.name(), 'ogr') for s in sublayers]
+        if extension(path) == '.shp':
+            layers[0].setProviderEncoding('UTF-8')
     else:
         raise ValueError(f"Error en la capa {name}: no se reconoce el tipo")
 
-    qml = style_path(path)
+    group = group_for(project, group_path)
     for layer in layers:
         if not layer.isValid():
             raise ValueError(f"La capa {layer.name()} no es válida")
-        if ext != '.gpkg' and os.path.isfile(qml):  #Los GeoPackage no usan .qml (pueden guardar el estilo dentro)
-            layer.loadNamedStyle(qml)
+        if len(layers) == 1:  #El .qml es de una capa: solo se aplica si el fichero tiene una
+            _apply_style(layer, style_path(path))
         project.addMapLayer(layer, False)  #Se añade al proyecto pero no aparece en el árbol (lo colocamos nosotros)
-        _add_to_tree(project.layerTreeRoot(), layer)
+        _add_to_tree(group, layer)
     return layers
+
+
+def add_geopackage_tables(project, gpkg, tables, group_path=(), qml=None):
+    """Añade tablas del GeoPackage común del proyecto. qml: estilo de origen (si la capa venía de un fichero de una sola capa)."""
+    group = group_for(project, group_path)
+    added = []
+    for table in tables:
+        layer = QgsVectorLayer(f"{gpkg}|layername={table}", table, 'ogr')
+        if not layer.isValid():
+            raise ValueError(f"La capa {table} no es válida")
+        _apply_style(layer, qml, save_in_geopackage=True)
+        project.addMapLayer(layer, False)
+        _add_to_tree(group, layer)
+        added.append(layer)
+    return added
 
 
 def add_group(project, group_name):

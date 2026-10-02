@@ -4,20 +4,25 @@ Prueba rápida de ProjectBuilder con los datos de tests/data (no necesita intern
 Uso (consola de Python de QGIS 3 o QGIS 4):
     exec(open(r"C:\\Users\\Usuario\\Documents\\dev\\ProjectBuilder\\tests\\smoke_test.py", encoding="utf-8").read())
 
-Crea proyectos en carpetas temporales y comprueba capas, SRC, estilos, ficheros, búsqueda
-y selección de capas sueltas de un GeoPackage. No abre ventanas: los avisos se muestran en la consola.
+Usa DOS carpetas de origen (tests/data/vectorial y tests/data/raster) y prueba los tres formatos de salida,
+la búsqueda, la selección de capas sueltas de un GeoPackage y quitar una carpeta del árbol.
+No abre ventanas: los avisos se muestran en la consola.
 """
 import os
 import tempfile
 
 import qgis.utils
-from qgis.core import Qgis, QgsCoordinateReferenceSystem, QgsProject
+from qgis.core import Qgis, QgsCoordinateReferenceSystem, QgsLayerTreeGroup, QgsProject, QgsVectorLayer
 from qgis.PyQt.QtCore import Qt
 
 qgis.utils.reloadPlugin('project_builder')
 import project_builder.project_builder_dockwidget as dock_module  # noqa: E402
 
 DATA = os.path.join(os.path.dirname(dock_module.__file__), 'tests', 'data').replace('\\', '/')
+CARPETAS = (DATA + '/vectorial', DATA + '/raster')
+TODAS = ("multicapa.gpkg", "zonas_4326.shp", "puntos_23030.shp", "MAYUSCULAS_4326.TIF",
+         "lugares_4326.geojson", "limites_4326.kml", "pendientes_4326.asc")
+SINGLE, CONVERT, KEEP = 'single', 'convert', 'keep'
 avisos = []
 dock_module.ProjectBuilderDockWidget.warn = lambda self, msg: avisos.append(msg)  # sin ventanas emergentes
 
@@ -29,58 +34,106 @@ def _items(item):
         yield from _items(item.child(i))
 
 
-def _crear(marcar, nombre):
-    """Crea un proyecto marcando los elementos del árbol cuyo texto esté en 'marcar'. Devuelve (proyecto, ficheros, panel)."""
-    tmp = tempfile.mkdtemp(prefix="pb_test_").replace('\\', '/')
+def _panel():
     dw = dock_module.ProjectBuilderDockWidget(qgis.utils.iface)
-    dw.pathFolder.setText(DATA)
-    dw.load_tree(DATA)
+    for carpeta in CARPETAS:
+        dw.add_source_folder(carpeta)
+    return dw
+
+
+def _crear(marcar, nombre, modo=SINGLE):
+    """Crea un proyecto marcando los elementos cuyo texto esté en 'marcar'. Devuelve (proyecto, ficheros, carpeta)."""
+    tmp = tempfile.mkdtemp(prefix="pb_test_").replace('\\', '/') + "/carpeta_nueva/proyecto"  # aún no existe: el plugin debe crearla
+    dw = _panel()
     for item in list(_items(dw.treeWidget.invisibleRootItem())):
         if item.text(0) in marcar:
             item.setCheckState(0, Qt.CheckState.Checked)  # se marca la casilla, como haría el usuario
     dw.pathFolderProject.setText(tmp)
     dw.nameProject.setText(nombre)
     dw.selectProjection.setCrs(QgsCoordinateReferenceSystem("EPSG:25830"))
+    dw.outputFormat.setCurrentIndex(dw.outputFormat.findData(modo))
     dw.create_project(background=False)  # sin segundo plano para comprobar el resultado al momento
+    dw.deleteLater()
     p = QgsProject()
     p.read(f"{tmp}/{nombre}.qgz")
-    ficheros = sorted(os.path.relpath(os.path.join(d, f), tmp) for d, _, fs in os.walk(tmp) for f in fs)
-    return p, ficheros, dw
+    ficheros = sorted(os.path.relpath(os.path.join(d, f), tmp).replace('\\', '/') for d, _, fs in os.walk(tmp) for f in fs)
+    return p, ficheros, tmp
 
 
-# 1. Proyecto completo
-p, ficheros, dw = _crear(("multicapa.gpkg", "zonas_4326.shp", "puntos_23030.shp", "MAYUSCULAS_4326.TIF"), "prueba")
+def _grupos(nodo, ruta=()):
+    """Rutas de todos los grupos del árbol de capas del proyecto."""
+    out = []
+    for c in nodo.children():
+        if isinstance(c, QgsLayerTreeGroup):
+            out.append('/'.join((*ruta, c.name())))
+            out += _grupos(c, (*ruta, c.name()))
+    return out
+
+
+def _color(lyr):
+    return lyr.renderer().symbol().color().name() if hasattr(lyr.renderer(), 'symbol') else None
+
+
+# 1. Un solo GeoPackage (por defecto)
+p, ficheros, tmp = _crear(TODAS, "prueba")
 capas = list(p.mapLayers().values())
-zonas_shp = [lyr for lyr in capas if lyr.source().replace('\\', '/').endswith('zonas_4326.shp')]
-gpkg_item = [it for it in _items(dw.treeWidget.invisibleRootItem()) if it.text(0) == 'multicapa.gpkg'][0]
+zonas_shp = [lyr for lyr in capas if lyr.name() == 'zonas_4326_2']  # la del shapefile (la del GeoPackage se llama zonas_4326)
+estilo_en_gpkg = _color(QgsVectorLayer(f"{tmp}/prueba.gpkg|layername=zonas_4326_2", "x", "ogr"))
+grupos = _grupos(p.layerTreeRoot())
 
-# 2. Búsqueda en el árbol
+# 2. Árbol: varias carpetas, búsqueda y quitar carpeta
+dw = _panel()
+raices = [dw.treeWidget.topLevelItem(i).text(0) for i in range(dw.treeWidget.topLevelItemCount())]
+multi = [it for it in _items(dw.treeWidget.invisibleRootItem()) if it.text(0) == 'multicapa.gpkg']
 dw.filterBox.setText("PUNTOS")  # en mayúsculas a propósito: la búsqueda no distingue
 visibles = [it.text(0) for it in _items(dw.treeWidget.invisibleRootItem()) if not it.isHidden() and it.childCount() == 0]
 dw.filterBox.clear()
-todas_visibles = all(not it.isHidden() for it in _items(dw.treeWidget.invisibleRootItem()))
+dw.add_source_folder(DATA)  # contiene a las otras dos: debe rechazarse
+rechazo = len(avisos) == 1
+avisos.clear()
+dw.treeWidget.setCurrentItem(dw.treeWidget.topLevelItem(1).child(0))  # una capa de la carpeta raster
+dw.remove_current_folder()
+tras_quitar = [dw.treeWidget.topLevelItem(i).text(0) for i in range(dw.treeWidget.topLevelItemCount())]
 dw.deleteLater()
 
 # 3. Solo una capa interna del GeoPackage
-p2, _, dw2 = _crear(("lineas_25830",), "parcial")
+p2, ficheros2, _ = _crear(("lineas_25830",), "parcial")
 capas2 = sorted(lyr.name() for lyr in p2.mapLayers().values())
-dw2.deleteLater()
+
+# 4. Un GeoPackage por capa
+p3, ficheros3, _ = _crear(TODAS, "porcapa", CONVERT)
+capas3 = list(p3.mapLayers().values())
+
+# 5. Conservar el formato original
+p4, ficheros4, _ = _crear(TODAS, "conservar", KEEP)
+capas4 = list(p4.mapLayers().values())
+ext4 = sorted({os.path.splitext(f)[1].lower() for f in ficheros4 if not f.endswith(('.qgz', '.qml', '.prj', '.dbf', '.shx', '.cpg', '.xml'))})
 
 checks = {
-    "proyecto .qgz se abre": bool(capas),
     "sin avisos": not avisos,
-    "5 capas (2 del GeoPackage)": len(capas) == 5,
-    "todas válidas": all(lyr.isValid() for lyr in capas),
-    "todas en EPSG:25830": all(lyr.crs().authid() == 'EPSG:25830' for lyr in capas),
-    "estilo naranja en zonas_4326.shp": bool(zonas_shp) and zonas_shp[0].renderer().symbol().color().name() == '#ff7f00',
-    ".qml copiado": 'vectorial' + os.sep + 'zonas_4326.qml' in ficheros,
-    "sin ficheros sueltos (.qgs~, attachments)": not any(f.endswith(('.qgs~', '_attachments.zip', '.qgs')) for f in ficheros),
-    "rutas relativas en el proyecto": p.filePathStorage() == Qgis.FilePathType.Relative,
-    "services.json leído (3 WMS)": len(dw.services) == 3,
-    "GeoPackage muestra sus 2 capas en el árbol": gpkg_item.childCount() == 2,
-    "búsqueda 'PUNTOS' deja solo puntos_23030.shp": visibles == ['puntos_23030.shp'],
-    "al borrar la búsqueda se ve todo": todas_visibles,
-    "GeoPackage parcial: solo lineas_25830": capas2 == ['lineas_25830'],
+    "crea la carpeta del proyecto si no existe": os.path.isfile(f"{tmp}/prueba.qgz"),
+    "[1 GPKG] 8 capas válidas en EPSG:25830": len(capas) == 8 and all(lyr.isValid() and lyr.crs().authid() == 'EPSG:25830' for lyr in capas),
+    "[1 GPKG] solo prueba.qgz, prueba.gpkg y los .tif": all(f in ('prueba.qgz', 'prueba.gpkg') or f.endswith(('.tif', '.aux.xml')) for f in ficheros)
+        and 'raster/pendientes_4326.tif' in ficheros,
+    "[1 GPKG] 6 tablas vectoriales dentro de prueba.gpkg": sum(lyr.source().startswith(f"{tmp}/prueba.gpkg") for lyr in capas) == 6,
+    "[1 GPKG] nombres repetidos con sufijo (zonas_4326_2)": len(zonas_shp) == 1,
+    "[1 GPKG] estilo naranja en el proyecto": bool(zonas_shp) and _color(zonas_shp[0]) == '#ff7f00',
+    "[1 GPKG] estilo naranja guardado dentro del GeoPackage": estilo_en_gpkg == '#ff7f00',
+    "[1 GPKG] grupos = carpetas de origen": {'vectorial', 'vectorial/subcarpeta', 'vectorial/multicapa', 'raster'} <= set(grupos),
+    "[1 GPKG] rutas relativas": p.filePathStorage() == Qgis.FilePathType.Relative,
+    "[árbol] dos carpetas de origen": raices == ['vectorial', 'raster'],
+    "[árbol] GeoPackage con sus 2 capas": bool(multi) and multi[0].childCount() == 2,
+    "[árbol] búsqueda 'PUNTOS' deja solo puntos_23030.shp": visibles == ['puntos_23030.shp'],
+    "[árbol] rechaza una carpeta que contiene a otras": rechazo,
+    "[árbol] quitar carpeta": tras_quitar == ['vectorial'],
+    "[parcial] solo lineas_25830": capas2 == ['lineas_25830'] and 'parcial.gpkg' in ficheros2,
+    "[por capa] 8 capas válidas, .gpkg y .tif": len(capas3) == 8 and all(lyr.isValid() for lyr in capas3)
+        and all(lyr.source().split('|')[0].lower().endswith(('.gpkg', '.tif')) for lyr in capas3),
+    "[por capa] estructura de carpetas conservada": 'vectorial/subcarpeta/puntos_23030.gpkg' in ficheros3,
+    "[conservar] 8 capas válidas": len(capas4) == 8 and all(lyr.isValid() for lyr in capas4),
+    "[conservar] .shp .geojson .kml .asc .tif se mantienen": ext4 == ['.asc', '.geojson', '.gpkg', '.kml', '.shp', '.tif'],
+    "[conservar] estilo naranja en zonas_4326.shp": [_color(lyr) for lyr in capas4 if lyr.source().split('|')[0].endswith('zonas_4326.shp')] == ['#ff7f00'],
+    "services.json leído (3 WMS)": len(dock_module.load_services()) == 3,
 }
 
 print("=" * 60)

@@ -14,7 +14,9 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 | Autor / email | Francisco Gómez Losada · pgomezlosada@gmail.com |
 | Capas al crear el proyecto | Se añaden **ocultas** (carga rápida del proyecto) |
 | Formato del proyecto | `.qgz`, rutas relativas, guardado una sola vez |
-| Rama de trabajo | `qgis4` → se fusiona a `main` al terminar la migración |
+| Formato de salida | Selector: **Un solo GeoPackage + GeoTIFF** (por defecto; estilos guardados dentro del GeoPackage), **Un GeoPackage por capa** o **Conservar** (si GDAL no puede escribirlo, se convierte) |
+| Orígenes de capas | Varias carpetas a la vez (raíces del árbol). Cada carpeta de origen es un grupo del proyecto; en los modos de ficheros sueltos, también una subcarpeta |
+| Rama de trabajo | `fase4` (v0.4.0 publicada en `main` con etiqueta) |
 
 ## Convenciones de código
 - Importar Qt **siempre** desde `qgis.PyQt` (nunca `PyQt5`/`PyQt6` directamente).
@@ -66,6 +68,11 @@ services.json  servicios WMS
 tests/         datos de prueba y scripts para la consola de QGIS
 ```
 
+## Formatos admitidos (core/formats.py)
+- Vectoriales: shp, gpkg, sqlite, geojson/json, kml, gml, fgb, tab/mif, dxf, gpx
+- Ráster: tif/tiff, ecw, jp2, asc, img, vrt, png, jpg, sid
+- Para añadir uno: incluir su extensión en VECTOR_EXTENSIONS/RASTER_EXTENSIONS (y en KEEP_* si GDAL lo escribe)
+
 ## Datos de prueba
 `tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet) y `tests/background_test.py` (segundo plano + WMS). También vía MCP de QGIS 3.40.
 Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
@@ -83,8 +90,8 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 ### Fase 4 · Mejoras (memoria TFM, apdo. 4) → v1.0.0
 | # | Mejora | Origen |
 |---|---|---|
-| 4.1 | Búsqueda/filtrado en el árbol + capas internas de GeoPackage como hijos | TFM + prueba QGIS 4 |
-| 4.2 | Más formatos vectoriales y ráster | TFM (aspectos a mejorar) |
+| 4.1 ✅ | Búsqueda/filtrado en el árbol + capas internas de GeoPackage como hijos | TFM + prueba QGIS 4 |
+| 4.2 ✅ | Más formatos, formato de salida a elegir (incl. un solo GeoPackage) y varias carpetas de origen | TFM + petición |
 | 4.3 | Catálogo amplio de WMS agrupado por ámbito (estatal y comunidades) + WFS/WMTS | TFM + petición |
 | 4.4 | Recorte previo por capa, buffer o BBOX | TFM |
 | 4.5 | Plantilla de composición `.qpt` | TFM |

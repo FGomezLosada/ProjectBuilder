@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass, field
 
-from .formats import FOLDER, GEOPACKAGE, VECTOR, layer_kind, vector_sublayers
+from .formats import FOLDER, MULTILAYER, VECTOR, layer_kind, vector_sublayers
 
 
 @dataclass
@@ -12,8 +12,8 @@ class Entry:
 
     name: str  #Nombre que se ve en el árbol
     path: str  #Ruta completa (no se ve en el árbol, se guarda internamente)
-    kind: str  #FOLDER, VECTOR, GEOPACKAGE o RASTER
-    children: list = field(default_factory=list)  #Solo las carpetas (y los GeoPackage) tienen hijos
+    kind: str  #FOLDER, VECTOR, MULTILAYER o RASTER
+    children: list = field(default_factory=list)  #Solo las carpetas (y los ficheros con varias capas) tienen hijos
     layer: str = None  #Solo en las capas internas de un GeoPackage: nombre de la capa
 
 
@@ -29,7 +29,7 @@ def scan_folder(start_path):
             entries.append(Entry(name, path, FOLDER, scan_folder(path)))
         else:
             kind = layer_kind(path)
-            if kind == GEOPACKAGE:  #Sus capas internas se muestran como hijos para poder elegirlas una a una
+            if kind == MULTILAYER:  #Sus capas internas se muestran como hijos para poder elegirlas una a una (GeoPackage, KML con carpetas...)
                 capas = [Entry(s.name(), path, VECTOR, layer=s.name()) for s in vector_sublayers(path)]
                 entries.append(Entry(name, path, kind, capas))
             elif kind is not None:  #Si no es un formato admitido no se añade
