@@ -5,7 +5,7 @@ qgisMaximumVersion=4.99
 supportsQt6=True
 description=Crea un proyecto de QGIS con una selección previa de capas y servicios WMS
 about=Genera un proyecto de QGIS a partir de una serie de parámetros: origen, selección y destino de las capas; servicios WMS; nombre, SRC y carpeta del proyecto. Las capas se copian y reproyectan a la carpeta del proyecto.
-version=0.2.0
+version=0.4.0
 author=Francisco Gómez Losada
 email=pgomezlosada@gmail.com
 
@@ -14,6 +14,8 @@ repository=https://github.com/FGomezLosada/ProjectBuilder
 homepage=https://github.com/FGomezLosada/ProjectBuilder
 
 changelog=
+    0.4.0 - Lógica separada en core/, exportación en segundo plano con progreso, árbol con casillas, proyecto .qgz con rutas relativas, botón para abrir el proyecto, servicios en services.json y proyectos solo con WMS.
+    0.3.0 - Correcciones: reproyección vectorial real, protección de datos de origen, GeoPackage multicapa, extensiones en mayúsculas, selección en el árbol y copia de estilos .qml.
     0.2.0 - Compatibilidad con QGIS 3.34+ y QGIS 4 (Qt6). Renombrado interno a project_builder.
     0.1   - Versión inicial (TFM, 2023).
 

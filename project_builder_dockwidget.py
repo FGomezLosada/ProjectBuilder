@@ -13,7 +13,7 @@ import os
 
 from qgis.core import Qgis, QgsApplication
 from qgis.PyQt import QtWidgets, uic
-from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAbstractItemView, QFileDialog, QMessageBox, QPushButton, QTreeWidgetItem
 
@@ -38,7 +38,7 @@ PATH_ROLE = Qt.ItemDataRole.UserRole  #Donde se guarda la ruta en cada elemento 
 
 class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
-    closingPlugin = pyqtSignal()
+
 
     def __init__(self, iface, parent=None):
         """Constructor."""
@@ -56,9 +56,6 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.treeWidget.clear()
         self.load_wms_combo()  #Llamar a funcion añade wms a combo al inicio
 
-    def closeEvent(self, event):  # noqa: N802 (nombre impuesto por Qt)
-        self.closingPlugin.emit()
-        event.accept()
 
     def warn(self, message):
         """Muestra un aviso al usuario."""

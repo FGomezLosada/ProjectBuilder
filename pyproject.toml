@@ -1,0 +1,14 @@
+# Configuración de herramientas de desarrollo (no la usa QGIS).
+# Comprobar el código:  ruff check .
+[tool.ruff]
+line-length = 130
+target-version = "py39"
+extend-exclude = ["tests/data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "N", "UP", "SIM"]
+ignore = [
+    "E501",  # líneas largas: se permiten por los comentarios en línea
+    "N802",  # nombres impuestos por QGIS/Qt (initGui, classFactory, closeEvent...)
+    "N999",  # el repo se llama ProjectBuilder; QGIS lo carga como project_builder
+]

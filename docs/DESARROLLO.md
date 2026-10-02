@@ -12,6 +12,8 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 | Versiones soportadas | QGIS 3.34 LTR+ y QGIS 4.x (Qt5 y Qt6) con el mismo código |
 | Nombre interno | `project_builder` (antes `carto_base`) |
 | Autor / email | Francisco Gómez Losada · pgomezlosada@gmail.com |
+| Capas al crear el proyecto | Se añaden **ocultas** (carga rápida del proyecto) |
+| Formato del proyecto | `.qgz`, rutas relativas, guardado una sola vez |
 | Rama de trabajo | `qgis4` → se fusiona a `main` al terminar la migración |
 
 ## Convenciones de código
@@ -37,7 +39,7 @@ Plugin de QGIS que crea un proyecto `.qgs` a partir de una selección de capas l
 - [x] Quitar `resources.py` (pyrcc5 no existe en Qt6) → rutas de fichero
 - [x] `metadata.txt`: `qgisMinimumVersion=3.34`, `supportsQt6=True`
 
-Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fase 1, v0.2.0).
+Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fases 1-3, v0.4.0).
 
 ## Entorno de pruebas
 - Repo: `%USERPROFILE%\Documents\dev\ProjectBuilder` (rama `qgis4`)
@@ -53,17 +55,39 @@ Probado OK en QGIS 3.40.13 y QGIS 4.2.2 (fase 1, v0.2.0).
 6. ~~`selectTreeChilds`: `==` en lugar de `=`; selección de hijos errónea.~~ ✅
 7. ~~Extensiones sensibles a mayúsculas; `.qml` sin comprobar ni copiar.~~ ✅
 8. ~~`closingPlugin` se conecta en cada ejecución; `unload` no elimina el panel.~~ ✅
-9. (→ fase 3) Interfaz bloqueada durante la exportación; el proyecto no se abre al terminar.
+9. ~~Interfaz bloqueada durante la exportación; el proyecto no se abre al terminar.~~ ✅ (fase 3)
+
+## Estructura
+```
+__init__.py / project_builder.py    entrada del plugin (menú, botón, panel)
+project_builder_dockwidget.py(.ui)  interfaz
+core/          lógica sin interfaz: formats, scanner, exporter, project, task, services
+services.json  servicios WMS
+tests/         datos de prueba y scripts para la consola de QGIS
+```
 
 ## Datos de prueba
-`tests/data/` (ver `LEEME.txt`). Pruebas automáticas vía MCP de QGIS 3.40 (qgis_mcp_plugin, botón Start Server).
+`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet) y `tests/background_test.py` (segundo plano + WMS). También vía MCP de QGIS 3.40.
+Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 
-## Mejoras futuras (fase 4, del TFM)
-- Más formatos vectoriales y ráster
-- Filtro/búsqueda en el árbol de capas
-- Más WMS (en fichero de configuración) y servicios WFS
-- Estilos: copiar `.qml` y los SVG que usen (pendiente de definir)
-- Plantilla de composición `.qpt`
-- Recorte previo por capa, buffer o BBOX
-- Conexión a base de datos (PostGIS)
-- Estadísticas de capas seleccionadas
+## Hoja de ruta
+
+### Fase 3 · Base técnica (v0.4.0) ✅
+1. Lógica separada en `core/` (escaneo, exportación, construcción del proyecto) ✅
+2. Exportación en segundo plano (`QgsTask`) con barra de progreso ✅
+3. Árbol con casillas ☑ (marcar carpeta = marcar contenido) ✅
+4. Proyecto `.qgz`, guardado una sola vez, rutas relativas, opción de abrirlo al terminar ✅
+5. Servicios en `services.json` (sin tocar código) ✅
+6. Limpieza (ruff, nombres homogéneos) conservando comentarios ✅
+
+### Fase 4 · Mejoras (memoria TFM, apdo. 4) → v1.0.0
+| # | Mejora | Origen |
+|---|---|---|
+| 4.1 | Búsqueda/filtrado en el árbol + capas internas de GeoPackage como hijos | TFM + prueba QGIS 4 |
+| 4.2 | Más formatos vectoriales y ráster | TFM (aspectos a mejorar) |
+| 4.3 | Catálogo amplio de WMS agrupado por ámbito (estatal y comunidades) + WFS/WMTS | TFM + petición |
+| 4.4 | Recorte previo por capa, buffer o BBOX | TFM |
+| 4.5 | Plantilla de composición `.qpt` | TFM |
+| 4.6 | Estadísticas de las capas seleccionadas | TFM |
+| 4.7 | Conexión a base de datos (PostGIS) como origen de capas | TFM |
+| 4.8 | Estilos `.qml` con símbolos SVG (pendiente de definir) | Word de mejoras |
