@@ -14,7 +14,7 @@ class ExportTask(QgsTask):
 
     def __init__(self, jobs, crs):
         super().__init__("ProjectBuilder: exportando capas", QgsTask.Flag.CanCancel)
-        self.jobs = jobs  #Lista de pares (ruta_origen, ruta_destino)
+        self.jobs = jobs  #Lista de (ruta_origen, ruta_destino, capas): capas = nombres a exportar de un GeoPackage (None = todas)
         self.crs = crs
         self.exported = []  #Rutas de destino exportadas correctamente
         self.errors = []  #Mensajes de error de las capas que fallen
@@ -23,11 +23,11 @@ class ExportTask(QgsTask):
     def run(self):
         """Se ejecuta en segundo plano: aquí NO se puede tocar la interfaz ni el proyecto."""
         total = len(self.jobs) or 1
-        for i, (path_source, path_target) in enumerate(self.jobs):
+        for i, (path_source, path_target, layers) in enumerate(self.jobs):
             if self.isCanceled():
                 return False
             try:
-                export_layer(path_source, path_target, self.crs, feedback=self.feedback)
+                export_layer(path_source, path_target, self.crs, feedback=self.feedback, layers=layers)
                 self.exported.append(path_target)
             except ExportError as e:
                 self.errors.append(str(e))  #Si una capa falla se anota y se sigue con las demás

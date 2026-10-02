@@ -10,8 +10,7 @@ from qgis.core import (
     QgsVectorLayer,
 )
 
-from .exporter import vector_sublayers
-from .formats import extension, style_path
+from .formats import extension, style_path, vector_sublayers
 
 
 def create_project(folder, name, crs):

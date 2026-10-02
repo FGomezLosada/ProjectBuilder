@@ -4,24 +4,18 @@ import os
 import shutil
 
 import processing
-from qgis.core import Qgis, QgsProviderRegistry
 
-from .formats import extension, style_path
+from .formats import extension, style_path, vector_sublayers
 
 
 class ExportError(Exception):
     """Error al exportar una capa (el mensaje se muestra al usuario)."""
 
 
-def vector_sublayers(path):
-    """Capas vectoriales que contiene un fichero (un GeoPackage puede tener varias)."""
-    return [s for s in QgsProviderRegistry.instance().querySublayers(path)
-            if s.type() == Qgis.LayerType.Vector]  #Solo capas vectoriales (se ignoran ráster o tablas internas)
-
-
-def export_layer(path_source, path_target, crs, feedback=None):
+def export_layer(path_source, path_target, crs, feedback=None, layers=None):
     """
     Copia la capa path_source en path_target reproyectada al SRC crs (QgsCoordinateReferenceSystem).
+    En un GeoPackage, layers es la lista de nombres de capas a exportar (None = todas).
     Si existe un .qml junto a la capa de origen, se copia junto a la capa exportada.
     Lanza ExportError si algo falla.
     """
@@ -32,6 +26,8 @@ def export_layer(path_source, path_target, crs, feedback=None):
             # GeoPackage: se reproyecta cada capa interna por separado y luego se empaquetan todas en el GeoPackage de destino
             capas = []
             for sublayer in vector_sublayers(path_source):
+                if layers is not None and sublayer.name() not in layers:  #Solo las capas marcadas en el árbol
+                    continue
                 capa = processing.run("native:reprojectlayer", {'INPUT': sublayer.uri(),
                                                                  'TARGET_CRS': crs,
                                                                  'OUTPUT': 'TEMPORARY_OUTPUT'}, feedback=feedback)['OUTPUT']
