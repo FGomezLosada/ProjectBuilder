@@ -88,7 +88,7 @@ creados y destruidos) acababa confundiendo objetos de Python y cerrando QGIS, au
 Si cambia la versión de QGIS instalada, actualizar las dos rutas de `tools\probar.bat`.
 
 ## Datos de prueba
-`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/config_test.py` (configuraciones guardadas, sin internet), `tests/layout_test.py` (composiciones, sin internet), `tests/open_project_test.py` (capas del proyecto abierto, sin internet), `tests/stats_test.py` (estadísticas, sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
+`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/config_test.py` (configuraciones guardadas, sin internet), `tests/layout_test.py` (composiciones, sin internet), `tests/open_project_test.py` (capas del proyecto abierto, sin internet), `tests/stats_test.py` (informe de capas, sin internet), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
 `tests/check_catalog.py` (comprueba que los 71 servicios del catálogo responden y que sus capas existen; ejecutarlo de vez en cuando). También vía MCP de QGIS 3.40.
 Si una prueba larga se lanza por el MCP, conviene hacerlo con `QTimer.singleShot` y guardar la salida en un fichero:
 así la llamada no espera a que termine (el MCP corta a los 60 s).
@@ -135,7 +135,7 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | 4.3 ✅ | Servicios web: ★ Favoritos + conexiones de QGIS + catálogo (17 grupos, 71 servicios comprobados); WMS, WMTS y WFS; aviso ⚠ en servicios pesados | TFM + petición |
 | 4.4 ✅ | Zona de trabajo: recorte por capa (o elementos seleccionados) o rectángulo, con margen en metros; vectoriales cortados por el borde, ráster por máscara, capas vacías avisadas, vista inicial en la zona | TFM |
 | 4.5 ✅ | Composiciones de impresión: las del proyecto abierto, plantillas `.qpt` de cualquier carpeta y las del perfil de QGIS; mapas centrados en la zona, en el SRC del proyecto; título del proyecto = nombre (`[% @project_title %]`). Sin plantilla propia del plugin | TFM + petición |
-| 4.6 🧪 | Estadísticas: botón «Estadísticas…» (antes de crear, recortado a la zona) e informe `informe_<proyecto>.html`; medidas sobre el elipsoide. **Pendiente de que Francisco decida si se incluye** (si no, se retira y queda como mejora futura) | TFM |
+| 4.6 ✅ | Informe de capas: botón «Informe de capas…» que muestra al instante tipo, elementos, superficie/longitud (elipsoide), SRC y tamaño de cada capa (recortada a la zona); se guarda en PDF/HTML/CSV o se copia para Excel/Word | TFM |
 | 4.7 | Conexión a base de datos (PostGIS) como origen de capas | TFM |
 | 4.8 | Estilos `.qml` con símbolos SVG (pendiente de definir) | Word de mejoras |
 | 4.9 ✅ | Configuraciones guardadas: un `.json` por configuración en el perfil (carpetas, capas marcadas, servicios, SRC, formato y zona de trabajo); se elige en un desplegable arriba del panel | Idea aprobada |

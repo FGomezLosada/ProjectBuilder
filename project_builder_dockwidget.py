@@ -21,16 +21,14 @@ from qgis.core import (
     QgsProject,
     QgsGeometry,
     QgsIconUtils,
-    QgsLayerTreeGroup,
-    QgsLayerTreeLayer,
     QgsRasterLayer,
     QgsRectangle,
     QgsVectorLayer,
 )
 from qgis.gui import QgsExtentWidget
 from qgis.PyQt import QtWidgets, sip, uic
-from qgis.PyQt.QtCore import QSettings, Qt, QTimer, QUrl
-from qgis.PyQt.QtGui import QDesktopServices, QFont
+from qgis.PyQt.QtCore import QMimeData, QSettings, Qt, QTimer, QUrl
+from qgis.PyQt.QtGui import QFont
 from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
@@ -161,7 +159,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.filterBox.textChanged.connect(self.apply_filter)  #Se filtra mientras se escribe
         self.selectFolderProject.clicked.connect(self.select_project_folder)
         self.resetButton.clicked.connect(self.reset_form)
-        self.statsButton.clicked.connect(self.show_preview_stats)
+        self.statsButton.clicked.connect(self.show_layers_report)
         self.statsButton.setIcon(QgsApplication.getThemeIcon('/mAlgorithmBasicStatistics.svg'))
         self.createProject.clicked.connect(lambda: self.create_project())  #lambda: la señal clicked envía un True/False que no queremos recibir
         self.treeWidget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)  #Las capas se eligen con las casillas, no seleccionando filas
@@ -226,7 +224,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if crs.isValid():
             QSettings().setValue(SETTINGS + 'last_crs', crs.authid() or crs.toWkt())
 
-    # ------------------------------------------------------------------ Estadísticas e informe (4.6)
+    # ------------------------------------------------------------------ Informe de capas (4.6)
 
     def _zone_description(self):
         if not self.groupZone.isChecked():
@@ -240,7 +238,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return texto + (f" + {margen} m de margen" if margen else "")
 
     def _report_header(self):
-        """Datos generales del informe (lo mismo antes y después de crear el proyecto)."""
+        """Datos generales del informe de capas."""
         crs = self.selectProjection.crs()
         return [
             ("Proyecto", self.nameProject.text().strip() or "—"),
@@ -265,6 +263,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             elemento = next(capa_zona.getFeatures(), None)
             if elemento is not None:
                 zona = (QgsGeometry(elemento.geometry()), capa_zona.crs())
+        self.zone_area_ha = stats.layer_stats(capa_zona, ellipsoid=QgsProject.instance().ellipsoid())['superficie_ha'] \
+            if zona is not None else None
         elipsoide = QgsProject.instance().ellipsoid()
         filas = []
         for raiz, path, layers in self.selected_sources():
@@ -288,8 +288,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             filas += [stats.service_row(s.name) for s in self.selected_services()]
         return filas
 
-    def show_preview_stats(self):
-        """Botón «Estadísticas…»: calcula y muestra las estadísticas antes de crear el proyecto."""
+    def show_layers_report(self):
+        """Botón «Informe de capas…»: calcula al instante lo que llevará el proyecto y lo muestra en una ventana."""
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Con capas grandes puede tardar unos segundos
         try:
             filas = self.preview_rows()
@@ -299,50 +299,62 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             QApplication.restoreOverrideCursor()
         if not filas:
             return self.warn("No hay capas ni servicios marcados")
+        datos = self._report_header()
+        if getattr(self, 'zone_area_ha', None) is not None:
+            datos.append(("Superficie de la zona", f"{stats.number(self.zone_area_ha)} ha"))
         nombre = self.nameProject.text().strip() or "proyecto"
-        self.show_report_dialog(stats.report_html(f"Estadísticas previas · {nombre}", self._report_header(), filas))
+        self.show_report_dialog(stats.report_html(f"Informe de capas · {nombre}", datos, filas), filas)
 
-    def show_report_dialog(self, contenido):
-        """Ventana con el informe (método aparte para poder probarlo sin ventanas)."""
+    def show_report_dialog(self, contenido, filas=()):
+        """Ventana con el informe de capas, con «Guardar…» (PDF, HTML o CSV) y «Copiar» (método aparte para las pruebas)."""
         dialogo = QDialog(self)
-        dialogo.setWindowTitle("ProjectBuilder · Estadísticas")
+        dialogo.setWindowTitle("ProjectBuilder · Informe de capas")
         dialogo.resize(980, 600)
         disposicion = QVBoxLayout(dialogo)
         visor = QTextBrowser(dialogo)
         visor.setHtml(contenido)
         disposicion.addWidget(visor)
         botones = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialogo)
+        guardar = botones.addButton("Guardar…", QDialogButtonBox.ButtonRole.ActionRole)
+        guardar.setToolTip("Guardar el informe como PDF (para imprimir), HTML (navegador) o CSV (tabla para Excel)")
+        guardar.clicked.connect(lambda: self.save_layers_report(contenido, filas))
+        copiar = botones.addButton("Copiar", QDialogButtonBox.ButtonRole.ActionRole)
+        copiar.setToolTip("Copiar la tabla de capas para pegarla en Excel o Word")
+        copiar.clicked.connect(lambda: self.copy_layers_report(filas))
         botones.rejected.connect(dialogo.reject)
         disposicion.addWidget(botones)
         dialogo.exec()
 
-    def write_final_report(self, project, vacias=()):
-        """Informe informe_<proyecto>.html con las capas ya copiadas al proyecto nuevo. Devuelve su ruta."""
-        carpeta, nombre = self.pathFolderProject.text(), self.nameProject.text().strip()
-        gpkg = os.path.normcase(os.path.abspath(os.path.join(carpeta, nombre + '.gpkg')))
-        filas, datos = [], self._report_header()
+    def ask_save_path(self, propuesta):
+        """Pide dónde y en qué formato guardar el informe (método aparte para poder probarlo sin ventanas)."""
+        ruta, filtro = QFileDialog.getSaveFileName(self, "Guardar informe de capas", propuesta,
+                                                   "PDF (*.pdf);;Página web (*.html);;Tabla para Excel (*.csv)")
+        if ruta and not os.path.splitext(ruta)[1]:  #Si no se escribe la extensión, se toma la del formato elegido
+            ruta += {'PDF': '.pdf', 'Pág': '.html', 'Tab': '.csv'}.get(filtro[:3], '.pdf')
+        return ruta
 
-        def recorrer(nodo, ruta):
-            for hijo in nodo.children():
-                if isinstance(hijo, QgsLayerTreeGroup):
-                    recorrer(hijo, (*ruta, hijo.name()))
-                    continue
-                capa = hijo.layer() if isinstance(hijo, QgsLayerTreeLayer) else None
-                if capa is None:
-                    continue
-                if capa.name() == ZONE_TABLE and not ruta:  #La propia zona no cuenta como capa: su superficie va arriba
-                    zona = stats.layer_stats(capa, ellipsoid=project.ellipsoid())
-                    datos.append(("Superficie de la zona", f"{stats.number(zona['superficie_ha'])} ha"))
-                    continue
-                fichero = os.path.normcase(os.path.abspath(capa.source().split('|')[0]))
-                filas.append(stats.layer_stats(capa, ruta, ellipsoid=project.ellipsoid(), with_size=fichero != gpkg))
+    def save_layers_report(self, contenido, filas):
+        """Guarda el informe en el formato que indique la extensión elegida (.pdf, .html o .csv)."""
+        carpeta = self.pathFolderProject.text().strip() or self._last_dir('last_project_dir')
+        nombre = self.nameProject.text().strip() or 'proyecto'
+        ruta = self.ask_save_path(os.path.join(carpeta, f"informe_capas_{nombre}.pdf"))
+        if not ruta:
+            return None
+        try:
+            stats.save_report(ruta, contenido, filas)
+        except OSError as e:
+            return self.warn(f"No se pudo guardar el informe:\n{e}")
+        self.iface.messageBar().pushMessage("ProjectBuilder", f"Informe guardado: {ruta}", level=Qgis.MessageLevel.Success, duration=8)
+        return ruta
 
-        recorrer(project.layerTreeRoot(), ())
-        if os.path.isfile(gpkg):
-            datos.append(("GeoPackage del proyecto", stats.human_size(os.path.getsize(gpkg))))
-        self.last_report_rows = filas
-        return stats.write_report(os.path.join(carpeta, f"informe_{nombre}.html"), f"Informe del proyecto {nombre}",
-                                  datos, filas, vacias)
+    def copy_layers_report(self, filas):
+        """Copia la tabla de capas al portapapeles: como tabla en Word y como celdas en Excel."""
+        datos = QMimeData()
+        datos.setText(stats.rows_text(filas, '\t'))  #Excel: una celda por columna
+        datos.setHtml(stats.rows_html(filas))  #Word: tabla con formato
+        QApplication.clipboard().setMimeData(datos)
+        self.iface.messageBar().pushMessage("ProjectBuilder", "Tabla de capas copiada al portapapeles",
+                                            level=Qgis.MessageLevel.Info, duration=4)
 
     # ------------------------------------------------------------------ Capas del proyecto abierto (4.10)
 
@@ -720,7 +732,6 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 'anadir_capa': self.zoneAddLayer.isChecked(),
             },
             'composiciones': [list(c) for c in self.selected_layouts()],
-            'informe': self.statsCheck.isChecked(),
             'proyecto_abierto': [{'id': capa.id(), 'nombre': capa.name(), 'fuente': capa.source()}
                                  for _, capa in self.selected_project_layers()],
         }
@@ -810,7 +821,6 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.zoneAddLayer.setChecked(zona.get('anadir_capa', True))
         self.groupZone.setChecked(zona.get('activa', False))
 
-        self.statsCheck.setChecked(datos.get('informe', True))
         abiertas = datos.get('proyecto_abierto', [])
         if abiertas:  #Capas del proyecto abierto: se buscan por su identificador o, si se abrió otra vez el proyecto, por su fuente
             self.load_project_layers()
@@ -920,7 +930,6 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.zoneSelected.setChecked(False)
         self.zoneMargin.setValue(0)
         self.zoneAddLayer.setChecked(True)
-        self.statsCheck.setChecked(True)
         self.servicesFilter.clear()
         for item in self._service_leaves():
             item.setCheckState(0, Qt.CheckState.Unchecked)
@@ -1543,18 +1552,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         except OSError as e:
             return self.warn(str(e))
 
-        informe = None
-        if self.statsCheck.isChecked():  #Informe de estadísticas junto al proyecto
-            try:
-                informe = self.write_final_report(project, task.empty)
-            except Exception as e:  # noqa: BLE001 (el proyecto ya está creado: un fallo del informe no debe impedirlo)
-                errors.append(f"No se pudo generar el informe de estadísticas: {e}")
-
         if errors:
             self.warn("El proyecto se ha creado, pero con estos problemas:\n\n- " + "\n- ".join(errors))
-        self.show_success(path_file, task.empty, informe)
+        self.show_success(path_file, task.empty)
 
-    def show_success(self, path_file, empty=(), report=None):
+    def show_success(self, path_file, empty=()):
         """Mensaje de que se ha creado el proyecto, con un botón para abrirlo en QGIS."""
         bar = self.iface.messageBar()
         texto = f"Proyecto creado: {path_file}"
@@ -1564,8 +1566,4 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         button = QPushButton("Abrir proyecto")
         button.clicked.connect(lambda: self.iface.addProject(path_file))  #QGIS pregunta antes si hay que guardar el proyecto actual
         message.layout().addWidget(button)
-        if report:
-            ver = QPushButton("Ver informe")
-            ver.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(report)))  #Se abre en el navegador
-            message.layout().addWidget(ver)
         bar.pushWidget(message, Qgis.MessageLevel.Success, 15)

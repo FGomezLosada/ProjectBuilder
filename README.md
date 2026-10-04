@@ -17,6 +17,7 @@ ProjectBuilder creates a QGIS project (`.qgz`) in a few clicks:
 - **Work area**: clip every layer to a polygon layer (or its selected features) or a rectangle, with an optional buffer in metres.
 - **Web services** (WMS, WMTS, WFS): your favourites, your QGIS connections and a built-in, automatically checked catalogue of Spanish public services (IGN, Cadastre, IGME, regional SDIs).
 - **Print layouts** from the open project or from `.qpt` templates, with their maps centred on the work area.
+- **Layers report**: before creating the project, see each layer's type, feature count, area or length, CRS and size (clipped to the work area); save it as PDF, HTML or CSV.
 - **Saved configurations** to repeat the same kind of project with one click.
 - Runs in the background, with progress and cancel. No external dependencies.
 
@@ -39,6 +40,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/Pr
 - **Zona de trabajo**: recorta todas las capas por una capa de polígonos (o sus elementos seleccionados) o un rectángulo, con margen en metros.
 - **Servicios web** WMS, WMTS y WFS: tus **favoritos**, tus **conexiones de QGIS** y un **catálogo** de servicios oficiales (IGN, Catastro, IGME, comunidades autónomas) que se revisa solo.
 - **Composiciones de impresión** del proyecto abierto o de plantillas `.qpt`, con los mapas centrados en la zona.
+- **Informe de capas**: antes de crear el proyecto, cada capa con su tipo, elementos, superficie o longitud, SRC y tamaño (ya recortada a la zona). Se guarda en PDF, HTML o CSV, o se copia para Excel o Word.
 - **Configuraciones guardadas** para repetir un tipo de proyecto con un clic.
 - Exportación en segundo plano, con progreso y cancelación. Las capas se añaden ocultas para que el proyecto abra rápido.
 
@@ -55,7 +57,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/Pr
    ![Servicios web](docs/captura_servicios.png)
 3. **Zona de trabajo** (opcional): elige una capa de polígonos (o solo sus elementos seleccionados) o un rectángulo (extensión del mapa, de una capa o dibujado), y un margen en metros. Todo se recorta por esa zona y el proyecto se abre en ella.
 4. **Proyecto**: nombre, carpeta de destino (se crea si no existe; no puede ser ninguna de las de origen ni estar dentro de ellas), SRC y composiciones de impresión. En el cajetín puedes usar `[% @project_title %]`: se rellena con el nombre del proyecto.
-5. Revisa el resumen y pulsa **Crear proyecto**. Al terminar, el mensaje verde permite abrirlo. **Limpiar** vacía el formulario.
+5. Revisa el resumen (o pulsa **Informe de capas…** para ver el detalle de cada capa) y pulsa **Crear proyecto**. Al terminar, el mensaje verde permite abrirlo. **Limpiar** vacía el formulario.
 
 ### Servicios siempre al día
 El plugin comprueba sus servicios una vez por semana (en segundo plano): los que no responden se desactivan temporalmente (⛔), corrige los cambios de dirección más habituales y descarga el catálogo más reciente de este repositorio.

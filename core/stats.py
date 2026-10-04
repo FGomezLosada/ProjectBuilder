@@ -1,10 +1,10 @@
 """
-Estadísticas de las capas (mejora 4.6): elementos, superficie, longitud, tamaño... e informe HTML.
+Informe de capas (mejora 4.6): tipo, elementos, superficie, longitud, SRC y tamaño de cada capa del proyecto.
 
 Las superficies y longitudes se miden sobre el elipsoide (en metros reales), aunque la capa esté en grados.
-Se usan en dos momentos:
-- Antes de crear el proyecto (botón «Estadísticas…»): sobre las capas de origen, recortadas «al vuelo» por la zona.
-- Al terminar: sobre las capas ya copiadas al proyecto nuevo, para el informe informe_<proyecto>.html.
+Se calcula antes de crear el proyecto (botón «Informe de capas…»), sobre las capas de origen recortadas «al vuelo»
+por la zona de trabajo: coincide con lo que tendrá el proyecto (lo comprueba tests/stats_test.py).
+Se puede guardar en PDF, HTML o CSV y copiar al portapapeles.
 """
 
 import datetime
@@ -165,9 +165,64 @@ Superficies y longitudes medidas sobre el elipsoide (metros reales).</p>
 """
 
 
-def write_report(path, titulo, datos, filas, vacias=()):
-    with open(path, 'w', encoding='utf-8') as f:
-        f.write(report_html(titulo, datos, filas, vacias))
+COLUMNS = ['Capa', 'Grupo', 'Tipo', 'Elementos', 'Superficie (ha)', 'Longitud (km)', 'SRC', 'Tamaño', 'Detalle']
+
+
+def _plain(valor, decimales):
+    """Número sin separador de miles y con coma decimal (lo que entiende Excel en español)."""
+    return '' if valor is None else f"{valor:.{decimales}f}".replace('.', ',')
+
+
+def _cells(fila):
+    return [fila['nombre'], fila['grupo'], fila['tipo'], '' if fila['elementos'] is None else str(fila['elementos']),
+            _plain(fila['superficie_ha'], 2), _plain(fila['longitud_km'], 3), fila['src'],
+            human_size(fila['tamano']) if fila['tamano'] is not None else '', fila['detalle']]
+
+
+def rows_text(filas, separador=';'):
+    """Tabla de capas como texto: con ';' para un CSV (Excel en español) o con tabuladores para copiar y pegar."""
+    lineas = [separador.join(COLUMNS)]
+    for fila in filas:
+        lineas.append(separador.join(str(c).replace(separador, ' ').replace('\n', ' ') for c in _cells(fila)))
+    return '\n'.join(lineas) + '\n'
+
+
+def rows_html(filas):
+    """Tabla de capas en HTML (para pegarla en Word con formato)."""
+    e = html.escape
+    cabecera = ''.join(f"<th>{e(c)}</th>" for c in COLUMNS)
+    cuerpo = ''.join('<tr>' + ''.join(f"<td>{e(str(c))}</td>" for c in _cells(f)) + '</tr>' for f in filas)
+    return f"<table border='1' cellspacing='0' cellpadding='3'><tr>{cabecera}</tr>{cuerpo}</table>"
+
+
+def save_pdf(contenido, path):
+    """Guarda el informe (HTML) como PDF en A4 horizontal, con el mismo aspecto que en la ventana."""
+    from qgis.PyQt.QtGui import QPageLayout, QPageSize, QTextDocument
+    from qgis.PyQt.QtPrintSupport import QPrinter
+    impresora = QPrinter()
+    impresora.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+    impresora.setOutputFileName(path)
+    impresora.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+    impresora.setPageOrientation(QPageLayout.Orientation.Landscape)
+    documento = QTextDocument()
+    documento.setHtml(contenido)
+    imprimir = getattr(documento, 'print', None) or documento.print_  #Qt6: print · Qt5: print_
+    imprimir(impresora)
+    if not os.path.isfile(path):
+        raise OSError(f"No se pudo crear {path}")
+
+
+def save_report(path, contenido, filas):
+    """Guarda el informe según la extensión de path: .pdf, .html o .csv (tabla de capas para Excel)."""
+    extension = os.path.splitext(path)[1].lower()
+    if extension == '.pdf':
+        save_pdf(contenido, path)
+    elif extension == '.csv':
+        with open(path, 'w', encoding='utf-8-sig', newline='') as f:  #utf-8 con BOM: Excel lee bien las tildes
+            f.write(rows_text(filas, ';').replace('\n', '\r\n'))
+    else:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(contenido)
     return path
 
 
