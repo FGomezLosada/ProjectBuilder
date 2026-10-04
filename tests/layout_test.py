@@ -39,7 +39,7 @@ dock_module.ProjectBuilderDockWidget.load_project_layers = lambda self, *a: None
 Clase.start_health_check = lambda self, force=False: None
 Clase._layout_files = staticmethod(lambda: list(plantillas))  # lista de plantillas en memoria: no se toca la del usuario
 Clase._set_layout_files = staticmethod(lambda rutas: plantillas.__setitem__(slice(None), rutas))
-Clase.show_success = lambda self, ruta, empty=(): None
+Clase.show_success = lambda self, ruta, empty=(), report=None: None
 WGS84 = QgsCoordinateReferenceSystem('EPSG:4326')
 
 

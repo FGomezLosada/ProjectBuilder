@@ -1,0 +1,13 @@
+Pruebas ProjectBuilder · QGIS 3.40.13-Bratislava · 04/10/2026 13:22
+
+  OK      smoke_test.py (8 s)
+  FALLO   zone_test.py (6 s): con fallos
+            FALLO  [rect] lugares_4326 (fuera de la zona) no se añade y se avisa
+  OK      config_test.py (2 s)
+  FALLO   layout_test.py (4 s): con fallos
+            FALLO  mapas centrados en la zona de trabajo
+  OK      open_project_test.py (4 s)
+  FALLO   stats_test.py (5 s): con fallos
+            FALLO  misma longitud antes y después (±1 %)
+
+RESULTADO GLOBAL: HAY FALLOS

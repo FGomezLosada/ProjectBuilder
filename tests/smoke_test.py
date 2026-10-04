@@ -168,13 +168,13 @@ capas3 = list(p3.mapLayers().values())
 # 5. Conservar el formato original
 p4, ficheros4, _ = _crear(TODAS, "conservar", KEEP)
 capas4 = list(p4.mapLayers().values())
-ext4 = sorted({os.path.splitext(f)[1].lower() for f in ficheros4 if not f.endswith(('.qgz', '.qml', '.prj', '.dbf', '.shx', '.cpg', '.xml'))})
+ext4 = sorted({os.path.splitext(f)[1].lower() for f in ficheros4 if not f.endswith(('.qgz', '.qml', '.prj', '.dbf', '.shx', '.cpg', '.xml', '.html'))})
 
 checks = {
     "sin avisos": not avisos,
     "crea la carpeta del proyecto si no existe": os.path.isfile(f"{tmp}/prueba.qgz"),
     "[1 GPKG] 8 capas válidas en EPSG:25830": len(capas) == 8 and all(lyr.isValid() and lyr.crs().authid() == 'EPSG:25830' for lyr in capas),
-    "[1 GPKG] solo prueba.qgz, prueba.gpkg y los .tif": all(f in ('prueba.qgz', 'prueba.gpkg') or f.endswith(('.tif', '.aux.xml')) for f in ficheros)
+    "[1 GPKG] solo prueba.qgz, prueba.gpkg y los .tif": all(f in ('prueba.qgz', 'prueba.gpkg', 'informe_prueba.html') or f.endswith(('.tif', '.aux.xml', '.gpkg-wal', '.gpkg-shm')) for f in ficheros)
         and 'raster/pendientes_4326.tif' in ficheros,
     "[1 GPKG] 6 tablas vectoriales dentro de prueba.gpkg": sum(lyr.source().startswith(f"{tmp}/prueba.gpkg") for lyr in capas) == 6,
     "[1 GPKG] nombres repetidos con sufijo (zonas_4326_2)": len(zonas_shp) == 1,

@@ -19,31 +19,50 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsNetworkAccessManager,
     QgsProject,
+    QgsGeometry,
     QgsIconUtils,
+    QgsLayerTreeGroup,
+    QgsLayerTreeLayer,
+    QgsRasterLayer,
     QgsRectangle,
     QgsVectorLayer,
 )
 from qgis.gui import QgsExtentWidget
-from qgis.PyQt import QtWidgets, uic
+from qgis.PyQt import QtWidgets, sip, uic
 from qgis.PyQt.QtCore import QSettings, Qt, QTimer, QUrl
-from qgis.PyQt.QtGui import QFont
+from qgis.PyQt.QtGui import QDesktopServices, QFont
 from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QInputDialog,
     QMenu,
     QMessageBox,
     QPushButton,
+    QTextBrowser,
     QTreeWidgetItem,
+    QVBoxLayout,
 )
 
 from .core import configs
 from .core import layouts
 from .core import open_project
+from .core import stats
 from .core import project as qgis_project
 from .core import services as svc
-from .core.clip import ZONE_TABLE, ZoneError, apply_margin, geometry_from_extent, geometry_from_layer, view_extent, write_zone
+from .core.clip import (
+    ZONE_TABLE,
+    ZoneError,
+    apply_margin,
+    geometry_from_extent,
+    geometry_from_layer,
+    view_extent,
+    write_zone,
+    zone_uri,
+)
 from .core.capabilities import detect_type, parse_capabilities
 from .core.health import HealthTask, check_due
 from .core.formats import (
@@ -142,6 +161,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.filterBox.textChanged.connect(self.apply_filter)  #Se filtra mientras se escribe
         self.selectFolderProject.clicked.connect(self.select_project_folder)
         self.resetButton.clicked.connect(self.reset_form)
+        self.statsButton.clicked.connect(self.show_preview_stats)
+        self.statsButton.setIcon(QgsApplication.getThemeIcon('/mAlgorithmBasicStatistics.svg'))
         self.createProject.clicked.connect(lambda: self.create_project())  #lambda: la señal clicked envía un True/False que no queremos recibir
         self.treeWidget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)  #Las capas se eligen con las casillas, no seleccionando filas
         self.treeWidget.clear()
@@ -164,7 +185,12 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.pending = {}  #Peticiones GetCapabilities en curso (se guardan para que no se eliminen antes de tiempo)
         self.health_task = None  #Comprobación automática de servicios en curso
         self.load_services_tree()
-        QTimer.singleShot(3000, self.start_health_check)  #Unos segundos después de abrir el panel (si toca: una vez por semana)
+        # Unos segundos después de abrir el panel (si toca: una vez por semana). El temporizador es «hijo» del panel:
+        # si el panel se cierra antes, el temporizador desaparece con él y la revisión no llega a lanzarse.
+        self.healthTimer = QTimer(self)
+        self.healthTimer.setSingleShot(True)
+        self.healthTimer.timeout.connect(self.start_health_check)
+        self.healthTimer.start(3000)
         self.apply_favorites_default()
         self.load_last_crs()
         self.selectProjection.crsChanged.connect(self.remember_crs)
@@ -199,6 +225,124 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def remember_crs(self, crs):
         if crs.isValid():
             QSettings().setValue(SETTINGS + 'last_crs', crs.authid() or crs.toWkt())
+
+    # ------------------------------------------------------------------ Estadísticas e informe (4.6)
+
+    def _zone_description(self):
+        if not self.groupZone.isChecked():
+            return "No"
+        if self.zoneByLayer.isChecked():
+            capa = self.zoneLayer.currentLayer()
+            texto = f"Capa «{capa.name() if capa else '—'}»" + (" (elementos seleccionados)" if self.zoneSelected.isChecked() else "")
+        else:
+            texto = "Rectángulo"
+        margen = int(self.zoneMargin.value())
+        return texto + (f" + {margen} m de margen" if margen else "")
+
+    def _report_header(self):
+        """Datos generales del informe (lo mismo antes y después de crear el proyecto)."""
+        crs = self.selectProjection.crs()
+        return [
+            ("Proyecto", self.nameProject.text().strip() or "—"),
+            ("Carpeta", self.pathFolderProject.text().strip() or "—"),
+            ("Fecha", datetime.datetime.now().strftime('%d/%m/%Y %H:%M')),
+            ("SRC del proyecto", f"{crs.authid()} · {crs.description()}"),
+            ("Formato de salida", MODE_NAMES.get(self.outputFormat.currentData(), '')),
+            ("Reproyección", "Sí, todas las capas al SRC del proyecto" if self.reprojectCheck.isChecked()
+             else "No, cada capa en su SRC original"),
+            ("Zona de trabajo", self._zone_description()),
+        ]
+
+    def preview_rows(self):
+        """
+        Estadísticas de lo marcado, antes de crear el proyecto: las capas de origen recortadas «al vuelo» por la zona
+        (sin escribir nada salvo la zona temporal). Lanza ZoneError si la zona no se puede calcular.
+        """
+        zona = None
+        ruta_zona, _ = self.build_zone()
+        if ruta_zona:
+            capa_zona = QgsVectorLayer(zone_uri(ruta_zona), 'zona', 'ogr')
+            elemento = next(capa_zona.getFeatures(), None)
+            if elemento is not None:
+                zona = (QgsGeometry(elemento.geometry()), capa_zona.crs())
+        elipsoide = QgsProject.instance().ellipsoid()
+        filas = []
+        for raiz, path, layers in self.selected_sources():
+            if os.path.isdir(path):
+                continue
+            carpetas = [p for p in os.path.dirname(os.path.relpath(path, raiz)).split(os.sep) if p]
+            grupo = (os.path.basename(os.path.normpath(raiz)), *carpetas)
+            kind = layer_kind(path)
+            if kind == RASTER:
+                filas.append(stats.layer_stats(QgsRasterLayer(path, os.path.splitext(os.path.basename(path))[0]), grupo))
+                continue
+            subcapas = vector_sublayers(path)
+            for subcapa in subcapas:
+                if layers is not None and subcapa.name() not in layers:
+                    continue
+                nombre = os.path.splitext(os.path.basename(path))[0] if len(subcapas) == 1 and kind == VECTOR else subcapa.name()
+                filas.append(stats.layer_stats(QgsVectorLayer(subcapa.uri(), nombre, 'ogr'), grupo, zona, elipsoide))
+        for grupos, capa in self.selected_project_layers():
+            filas.append(stats.layer_stats(capa, grupos, zona if open_project.how(capa) == open_project.COPY else None, elipsoide))
+        if self.addWMS.isChecked():
+            filas += [stats.service_row(s.name) for s in self.selected_services()]
+        return filas
+
+    def show_preview_stats(self):
+        """Botón «Estadísticas…»: calcula y muestra las estadísticas antes de crear el proyecto."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Con capas grandes puede tardar unos segundos
+        try:
+            filas = self.preview_rows()
+        except ZoneError as e:
+            return self.warn(str(e))
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not filas:
+            return self.warn("No hay capas ni servicios marcados")
+        nombre = self.nameProject.text().strip() or "proyecto"
+        self.show_report_dialog(stats.report_html(f"Estadísticas previas · {nombre}", self._report_header(), filas))
+
+    def show_report_dialog(self, contenido):
+        """Ventana con el informe (método aparte para poder probarlo sin ventanas)."""
+        dialogo = QDialog(self)
+        dialogo.setWindowTitle("ProjectBuilder · Estadísticas")
+        dialogo.resize(980, 600)
+        disposicion = QVBoxLayout(dialogo)
+        visor = QTextBrowser(dialogo)
+        visor.setHtml(contenido)
+        disposicion.addWidget(visor)
+        botones = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialogo)
+        botones.rejected.connect(dialogo.reject)
+        disposicion.addWidget(botones)
+        dialogo.exec()
+
+    def write_final_report(self, project, vacias=()):
+        """Informe informe_<proyecto>.html con las capas ya copiadas al proyecto nuevo. Devuelve su ruta."""
+        carpeta, nombre = self.pathFolderProject.text(), self.nameProject.text().strip()
+        gpkg = os.path.normcase(os.path.abspath(os.path.join(carpeta, nombre + '.gpkg')))
+        filas, datos = [], self._report_header()
+
+        def recorrer(nodo, ruta):
+            for hijo in nodo.children():
+                if isinstance(hijo, QgsLayerTreeGroup):
+                    recorrer(hijo, (*ruta, hijo.name()))
+                    continue
+                capa = hijo.layer() if isinstance(hijo, QgsLayerTreeLayer) else None
+                if capa is None:
+                    continue
+                if capa.name() == ZONE_TABLE and not ruta:  #La propia zona no cuenta como capa: su superficie va arriba
+                    zona = stats.layer_stats(capa, ellipsoid=project.ellipsoid())
+                    datos.append(("Superficie de la zona", f"{stats.number(zona['superficie_ha'])} ha"))
+                    continue
+                fichero = os.path.normcase(os.path.abspath(capa.source().split('|')[0]))
+                filas.append(stats.layer_stats(capa, ruta, ellipsoid=project.ellipsoid(), with_size=fichero != gpkg))
+
+        recorrer(project.layerTreeRoot(), ())
+        if os.path.isfile(gpkg):
+            datos.append(("GeoPackage del proyecto", stats.human_size(os.path.getsize(gpkg))))
+        self.last_report_rows = filas
+        return stats.write_report(os.path.join(carpeta, f"informe_{nombre}.html"), f"Informe del proyecto {nombre}",
+                                  datos, filas, vacias)
 
     # ------------------------------------------------------------------ Capas del proyecto abierto (4.10)
 
@@ -576,6 +720,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 'anadir_capa': self.zoneAddLayer.isChecked(),
             },
             'composiciones': [list(c) for c in self.selected_layouts()],
+            'informe': self.statsCheck.isChecked(),
             'proyecto_abierto': [{'id': capa.id(), 'nombre': capa.name(), 'fuente': capa.source()}
                                  for _, capa in self.selected_project_layers()],
         }
@@ -665,6 +810,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.zoneAddLayer.setChecked(zona.get('anadir_capa', True))
         self.groupZone.setChecked(zona.get('activa', False))
 
+        self.statsCheck.setChecked(datos.get('informe', True))
         abiertas = datos.get('proyecto_abierto', [])
         if abiertas:  #Capas del proyecto abierto: se buscan por su identificador o, si se abrió otra vez el proyecto, por su fuente
             self.load_project_layers()
@@ -711,6 +857,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if lienzo is not None:
             self.zoneExtent.setMapCanvas(lienzo)
             crs = lienzo.mapSettings().destinationCrs()
+            if not crs.isValid():  #Mapa sin SRC (p. ej. QGIS recién abierto, sin capas): el del proyecto o EPSG:4326
+                crs = QgsProject.instance().crs() if QgsProject.instance().crs().isValid() else QgsCoordinateReferenceSystem('EPSG:4326')
             self.zoneExtent.setOutputCrs(crs)
             self.zoneExtent.setCurrentExtent(lienzo.extent(), crs)
             self.zoneExtent.setOriginalExtent(lienzo.extent(), crs)
@@ -747,6 +895,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if self.zoneByLayer.isChecked():
             geometria, crs = geometry_from_layer(self.zoneLayer.currentLayer(), self.zoneSelected.isChecked())
         else:
+            if not self.zoneExtent.outputCrs().isValid():
+                raise ZoneError("El rectángulo de la zona no tiene sistema de coordenadas: vuelve a elegirlo")
             geometria, crs = geometry_from_extent(self.zoneExtent.outputExtent(), self.zoneExtent.outputCrs())
         geometria, crs = apply_margin(geometria, crs, self.zoneMargin.value(), self.selectProjection.crs())
         return write_zone(geometria, crs), view_extent(geometria, crs, self.selectProjection.crs())
@@ -770,6 +920,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.zoneSelected.setChecked(False)
         self.zoneMargin.setValue(0)
         self.zoneAddLayer.setChecked(True)
+        self.statsCheck.setChecked(True)
         self.servicesFilter.clear()
         for item in self._service_leaves():
             item.setCheckState(0, Qt.CheckState.Unchecked)
@@ -1076,6 +1227,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         respuesta.finished.connect(lambda: self._service_layers_received(item, servicio, respuesta))
 
     def _service_layers_received(self, item, servicio, respuesta):
+        if sip.isdeleted(self):  #La respuesta llega tarde y el panel ya se ha cerrado
+            return
         self.pending.pop(id(respuesta), None)
         datos = bytes(respuesta.readAll())
         # Se compara con NoError: en PyQt6 (QGIS 4) los enum siempre valen True en un if, aunque no haya error
@@ -1120,6 +1273,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         QgsApplication.taskManager().addTask(self.health_task)
 
     def _health_finished(self):
+        if sip.isdeleted(self):  #La revisión termina cuando el panel ya se ha cerrado: no hay nada que actualizar
+            return
         task, self.health_task = self.health_task, None
         svc.save_health({'fecha': datetime.date.today().isoformat(), 'servicios': task.resultados}, svc.health_path())
         avisos = []
@@ -1329,6 +1484,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def finish_project(self, completed):
         """Se ejecuta al terminar la exportación: crea el proyecto con las capas exportadas, añade los WMS y lo guarda."""
+        if sip.isdeleted(self):  #El panel se cerró mientras se exportaban las capas
+            return
         self.createProject.setEnabled(True)
         self.resetButton.setEnabled(True)
         task, self.task = self.task, None
@@ -1386,11 +1543,18 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         except OSError as e:
             return self.warn(str(e))
 
+        informe = None
+        if self.statsCheck.isChecked():  #Informe de estadísticas junto al proyecto
+            try:
+                informe = self.write_final_report(project, task.empty)
+            except Exception as e:  # noqa: BLE001 (el proyecto ya está creado: un fallo del informe no debe impedirlo)
+                errors.append(f"No se pudo generar el informe de estadísticas: {e}")
+
         if errors:
             self.warn("El proyecto se ha creado, pero con estos problemas:\n\n- " + "\n- ".join(errors))
-        self.show_success(path_file, task.empty)
+        self.show_success(path_file, task.empty, informe)
 
-    def show_success(self, path_file, empty=()):
+    def show_success(self, path_file, empty=(), report=None):
         """Mensaje de que se ha creado el proyecto, con un botón para abrirlo en QGIS."""
         bar = self.iface.messageBar()
         texto = f"Proyecto creado: {path_file}"
@@ -1400,4 +1564,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         button = QPushButton("Abrir proyecto")
         button.clicked.connect(lambda: self.iface.addProject(path_file))  #QGIS pregunta antes si hay que guardar el proyecto actual
         message.layout().addWidget(button)
+        if report:
+            ver = QPushButton("Ver informe")
+            ver.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(report)))  #Se abre en el navegador
+            message.layout().addWidget(ver)
         bar.pushWidget(message, Qgis.MessageLevel.Success, 15)

@@ -1,6 +1,7 @@
 # Finales de línea: LF en todos los ficheros de texto (igual en Windows, Linux y GitHub).
 # Evita los avisos "LF will be replaced by CRLF" y que un fichero salga entero como modificado.
 * text=auto eol=lf
+*.bat text eol=crlf
 
 # Ficheros binarios: no se tocan
 *.png binary

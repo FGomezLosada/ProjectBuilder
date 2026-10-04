@@ -326,6 +326,13 @@ En los textos del cajetín puedes usar [% @project_title %] (nombre del proyecto
              </item>
             </layout>
            </item>
+           <item row="5" column="1">
+            <widget class="QCheckBox" name="statsCheck">
+             <property name="text"><string>Generar informe de estadísticas (HTML)</string></property>
+             <property name="checked"><bool>true</bool></property>
+             <property name="toolTip"><string>Crea informe_&lt;proyecto&gt;.html en la carpeta del proyecto: elementos, superficie, longitud y tamaño de cada capa</string></property>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
@@ -342,6 +349,12 @@ En los textos del cajetín puedes usar [% @project_title %] (nombre del proyecto
     </item>
     <item>
      <layout class="QHBoxLayout" name="bottomButtonsLayout">
+      <item>
+       <widget class="QPushButton" name="statsButton">
+        <property name="text"><string>Estadísticas…</string></property>
+        <property name="toolTip"><string>Calcula, antes de crear el proyecto, cuántos elementos, qué superficie y qué longitud tendrá cada capa marcada (ya recortada a la zona de trabajo)</string></property>
+       </widget>
+      </item>
       <item>
        <widget class="QPushButton" name="resetButton">
         <property name="text"><string>Limpiar</string></property>
