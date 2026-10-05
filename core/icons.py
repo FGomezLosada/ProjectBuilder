@@ -53,8 +53,39 @@ def _builtin_dirs():
     return [os.path.normcase(os.path.abspath(r)) for r in raices if r]
 
 
-def _resolve(ruta, es_svg, resolver):
-    """Ruta absoluta del icono (None si no existe). Un SVG puede venir solo por su nombre (carpetas de SVG de QGIS)."""
+MAX_FILES = 20000  #Tope de ficheros revisados al buscar iconos por su nombre (por si una carpeta es enorme)
+
+
+class _Finder:
+    """
+    Busca un icono por su NOMBRE en unas carpetas (y sus subcarpetas). Sirve para los estilos que guardan una ruta
+    relativa (iconos/arbol.svg) o la de otro ordenador (D:/cliente/iconos/arbol.svg): el icono existe, pero no ahí.
+    El índice de nombres se hace una sola vez, la primera vez que hace falta.
+    """
+
+    def __init__(self, carpetas):
+        self.carpetas = [c for c in dict.fromkeys(carpetas or []) if c and os.path.isdir(c)]
+        self.indice = None
+
+    def find(self, nombre):
+        if self.indice is None:
+            self.indice, revisados = {}, 0
+            for carpeta in self.carpetas:
+                for actual, subcarpetas, ficheros in os.walk(carpeta):
+                    subcarpetas[:] = [s for s in subcarpetas if not s.startswith('.')]
+                    for fichero in ficheros:
+                        self.indice.setdefault(fichero.lower(), os.path.join(actual, fichero))
+                    revisados += len(ficheros)
+                    if revisados > MAX_FILES:
+                        break
+        return self.indice.get(nombre.lower())
+
+
+def _resolve(ruta, es_svg, resolver, buscador=None):
+    """
+    Ruta absoluta del icono (None si no existe): primero la ruta tal cual, luego las carpetas de SVG de QGIS
+    y, por último, por su nombre en las carpetas de búsqueda (las de origen de las capas).
+    """
     if not ruta or ruta.startswith(('base64:', 'http://', 'https://')):
         return None
     candidatos = [ruta]
@@ -63,6 +94,10 @@ def _resolve(ruta, es_svg, resolver):
     for candidato in candidatos:
         if candidato and os.path.isfile(candidato):
             return os.path.abspath(candidato)
+    if buscador is not None:
+        encontrado = buscador.find(os.path.basename(ruta.replace('\\', '/')))
+        if encontrado:
+            return os.path.abspath(encontrado)
     return None
 
 
@@ -78,15 +113,17 @@ def _unique_target(carpeta, origen, copiados):
         n += 1
 
 
-def localize(project, project_folder, layers=None):
+def localize(project, project_folder, layers=None, search_dirs=None):
     """
     Copia a <project_folder>/iconos/ los iconos que usan las capas (todas las del proyecto si layers es None)
-    y hace que los símbolos apunten a la copia. Devuelve (capas cambiadas, [(capa, icono que no se encuentra)]).
+    y hace que los símbolos apunten a la copia. search_dirs: carpetas donde buscar por su nombre los iconos que no estén
+    en la ruta guardada en el estilo. Devuelve (capas cambiadas, [(capa, icono que no se encuentra)]).
     """
     carpeta = os.path.join(project_folder, ICONS_FOLDER)
     internas = _builtin_dirs()
     resolver = QgsProject.instance().pathResolver()
     copiados, cambiadas, faltan = {}, [], []
+    buscador = _Finder(search_dirs)
     for capa in (layers if layers is not None else project.mapLayers().values()):
         if not isinstance(capa, QgsVectorLayer) or capa.renderer() is None:
             continue
@@ -98,7 +135,7 @@ def localize(project, project_folder, layers=None):
                     continue
                 leer, escribir, es_svg = acceso
                 ruta = leer()
-                origen = _resolve(ruta, es_svg, resolver)
+                origen = _resolve(ruta, es_svg, resolver, buscador)
                 if origen is None:
                     if ruta and not ruta.startswith(('base64:', 'http://', 'https://')):
                         faltan.append((capa.name(), os.path.basename(ruta)))

@@ -1729,7 +1729,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     errors.append(str(e))
 
         # Iconos (SVG e imágenes) de los estilos: se copian a iconos/ para que el proyecto se pueda llevar a otro sitio
-        cambiadas, faltan = icons.localize(project, self.pathFolderProject.text())
+        # Dónde buscar por su nombre los iconos que no estén en la ruta guardada en el estilo: las carpetas de capas
+        # (con la carpeta de iconos que suelen entregar), la del proyecto abierto y las carpetas de SVG de QGIS
+        buscar_en = [*self.source_folders(), *[os.path.dirname(c) for c in self.source_folders()],
+                     QgsProject.instance().absolutePath(), *QgsApplication.svgPaths()]
+        cambiadas, faltan = icons.localize(project, self.pathFolderProject.text(), search_dirs=buscar_en)
         gpkg_comun = os.path.normcase(os.path.abspath(os.path.join(self.pathFolderProject.text(), self.nameProject.text().strip() + '.gpkg')))
         for capa in cambiadas:  #El estilo guardado dentro del GeoPackage común también apunta ya a los iconos copiados
             if os.path.normcase(os.path.abspath(capa.source().split('|')[0])) == gpkg_comun:

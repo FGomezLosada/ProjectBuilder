@@ -48,13 +48,15 @@ Clase.load_project_layers = lambda self, *a: None
 SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="{r}" fill="#2a2"/></svg>'
 
 # 1. Datos de origen: capas + carpeta de iconos del cliente (fuera de la carpeta de capas, como suele llegar)
-ORIGEN, ICONOS = f"{TMP}/capas", f"{TMP}/iconos_cliente"
-os.makedirs(ORIGEN)
+ORIGEN = f"{TMP}/capas"
+ICONOS = f"{ORIGEN}/iconos_cliente"
 os.makedirs(f"{ICONOS}/otra_serie")
 with open(f"{ICONOS}/arbol.svg", 'w') as f:
     f.write(SVG.format(r=4))
 with open(f"{ICONOS}/otra_serie/arbol.svg", 'w') as f:  # mismo nombre, distinto dibujo
     f.write(SVG.format(r=2))
+with open(f"{ICONOS}/farola.svg", 'w') as f:  # el estilo lo busca en «D:/ordenador_del_cliente/iconos/»
+    f.write(SVG.format(r=3))
 for patron in ("zonas_4326.*", "subcarpeta/puntos_23030.*"):
     for fichero in glob.glob(f"{DATA}/vectorial/{patron}"):
         if not fichero.endswith('.qml'):
@@ -66,6 +68,7 @@ marcador = QgsMarkerSymbol()
 marcador.changeSymbolLayer(0, QgsSvgMarkerSymbolLayer(f"{ICONOS}/arbol.svg", 6))
 if serie:
     marcador.appendSymbolLayer(QgsSvgMarkerSymbolLayer(serie, 3))  # icono de serie de QGIS: no se copia
+marcador.appendSymbolLayer(QgsSvgMarkerSymbolLayer("D:/ordenador_del_cliente/iconos/farola.svg", 4))  # ruta de otro ordenador
 puntos.setRenderer(QgsSingleSymbolRenderer(marcador))
 puntos.saveNamedStyle(f"{ORIGEN}/puntos_23030.qml")
 
@@ -145,14 +148,15 @@ for nombre, funcion in _originales.items():
     setattr(Clase, nombre, funcion)
 
 checks = {
-    "iconos usados copiados a iconos/ (dos con el mismo nombre)": iconos1 == ['arbol.svg', 'arbol_2.svg'],
+    "iconos usados copiados a iconos/ (dos con el mismo nombre)": iconos1 == ['arbol.svg', 'arbol_2.svg', 'farola.svg'],
+    "encuentra por su nombre un icono con ruta de otro ordenador": 'farola.svg' in iconos1 and not any('farola' in a for a in avisos1),
     "el icono de serie de QGIS no se copia": serie is None or os.path.basename(serie) not in iconos1,
     "el proyecto guarda rutas relativas a iconos/": "iconos/arbol.svg" in qgs and "iconos/arbol_2.svg" in qgs
         and f"{ICONOS}/arbol.svg" not in qgs and f"{ICONOS}/otra_serie/arbol.svg" not in qgs,
     "el estilo dentro del GeoPackage apunta a la copia": any(r.replace('\\', '/').endswith('/unico/iconos/arbol.svg') for r in rutas_gpkg),
-    "proyecto movido: los iconos se siguen encontrando": len(propios) == 2 and all(os.path.isfile(r) for r in propios),
+    "proyecto movido: los iconos se siguen encontrando": len(propios) == 3 and all(os.path.isfile(r) for r in propios),
     "aviso del icono que no existe": any('no_existe.svg' in a for a in avisos1),
-    "[por capa] también copia los iconos": iconos2 == ['arbol.svg', 'arbol_2.svg'],
+    "[por capa] también copia los iconos": iconos2 == ['arbol.svg', 'arbol_2.svg', 'farola.svg'],
     "[por capa] mismo aviso": any('no_existe.svg' in a for a in avisos2),
 }
 
