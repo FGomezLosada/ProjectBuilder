@@ -9,7 +9,7 @@ import tempfile
 import qgis.utils
 from qgis.core import Qgis, QgsCoordinateReferenceSystem
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QMessageBox, QPushButton
+from qgis.PyQt.QtWidgets import QLabel, QMessageBox, QPushButton
 
 qgis.utils.reloadPlugin('project_builder')
 import project_builder.core.services as svc_module  # noqa: E402
@@ -38,8 +38,12 @@ def _items(item):
 
 
 def _texto(barra):
+    """Texto del aviso visible (en el informe final está en una etiqueta propia, encima de los botones)."""
     item = barra.currentItem()
-    return item.text() if item is not None else None
+    if item is None:
+        return None
+    etiquetas = [e.text() for e in item.findChildren(QLabel) if e.text()]
+    return item.text() or (etiquetas[0] if etiquetas else '')
 
 
 dw = Clase(qgis.utils.iface)
@@ -76,7 +80,8 @@ avisos_antes = len(barra.items())
 # 4. Informe completo
 contenido, filas = dw.final_report()
 paso4 = (contenido is not None and len(filas) == 2 and 'zonas_4326' in contenido and 'Tiempo' in contenido
-         and 'Tamaño de la carpeta' in contenido and 'Problemas' in contenido)
+         and 'Tamaño de la carpeta' in contenido and 'Problemas' in contenido
+         and all(f['tamano'] is None and 'en avisos.gpkg' in f['detalle'] for f in filas))
 item_final.findChildren(QPushButton)[2].click()  #«Informe…»
 paso4b = dialogos == [("ProjectBuilder · Proyecto creado", 2)]
 

@@ -1,6 +1,6 @@
 # Changelog / Historial de versiones
 
-## Próxima versión
+## 1.0.0 (2026-10-05) · primera versión estable
 - **Avisos dentro del panel**, en una barra encima de los botones, en lugar de ventanas emergentes. Los avisos largos muestran la primera línea y el resto con «Más».
 - **Informe final** al crear el proyecto: capas, tamaño de la carpeta y tiempo, con los problemas si los hay, y botones «Abrir proyecto», «Abrir carpeta» e «Informe…» (cada capa del proyecto con sus elementos, superficie y tamaño; se guarda en PDF, HTML o CSV).
 - **Icono nuevo** (SVG, nítido a cualquier tamaño) y botón de **ayuda** (?) que abre la guía de uso.

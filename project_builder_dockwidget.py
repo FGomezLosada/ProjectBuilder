@@ -2274,15 +2274,28 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             partes.append(f"{len(empty)} sin datos en la zona")
         if errors:
             partes.append(f"⚠ {len(errors)} problema{'s' if len(errors) != 1 else ''} (ver Informe)")
-        mensaje = self.messageBar.createMessage('', " · ".join(partes))
+        # El texto arriba (con saltos de línea) y los botones debajo: así cabe entero aunque el panel sea estrecho
+        contenido = QtWidgets.QWidget(self.messageBar)  #Con «padre»: si no, Python lo borraría al salir de aquí
+        caja = QVBoxLayout(contenido)
+        caja.setContentsMargins(0, 0, 0, 0)
+        caja.setSpacing(4)
+        etiqueta = QtWidgets.QLabel(" · ".join(partes), contenido)
+        etiqueta.setWordWrap(True)
+        caja.addWidget(etiqueta)
+        fila = QtWidgets.QHBoxLayout()
+        caja.addLayout(fila)
+        self.last_message = etiqueta.text()
         for texto, accion, ayuda in (
                 ("Abrir proyecto", self.open_created_project, "Abrir el proyecto en QGIS (antes pregunta si guardar el actual)"),
                 ("Abrir carpeta", self.open_created_folder, "Abrir la carpeta del proyecto"),
                 ("Informe…", self.show_final_report, "Capas del proyecto con sus elementos, superficie y tamaño, y los problemas")):
-            boton = QPushButton(texto, mensaje)
+            boton = QPushButton(texto, contenido)
             boton.setToolTip(ayuda)
             boton.clicked.connect(accion)
-            mensaje.layout().addWidget(boton)
+            fila.addWidget(boton)
+        fila.addStretch()
+        mensaje = self.messageBar.createMessage(contenido)
+        self.result_message = (mensaje, contenido)  #Se guardan también aquí, por la misma razón
         self.messageBar.pushWidget(mensaje, Qgis.MessageLevel.Warning if errors else Qgis.MessageLevel.Success, 0)
         # Aviso breve también en la barra de QGIS, por si el panel está plegado o en otra pestaña
         self.iface.messageBar().pushMessage("ProjectBuilder", partes[0] + " (detalles en el panel)",
@@ -2311,7 +2324,12 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if open_project.how(capa) == open_project.LINK or capa.providerType() in ('wfs', 'oapif', 'arcgisfeatureserver'):
                 filas.append(stats.service_row(capa.name(), ' / '.join(grupos)))  #Servicio web: no se descarga nada para contarlo
             else:
-                filas.append(stats.layer_stats(capa, tuple(grupos), None, elipsoide))
+                fila = stats.layer_stats(capa, tuple(grupos), None, elipsoide)
+                fichero, _, tabla = capa.source().partition('|')
+                if tabla and fichero.lower().endswith('.gpkg'):  #Tabla de un GeoPackage con varias: su tamaño sería el de todo el fichero
+                    fila['tamano'] = None
+                    fila['detalle'] = (fila['detalle'] + ' · ' if fila['detalle'] else '') + f"en {os.path.basename(fichero)}"
+                filas.append(fila)
         return filas
 
     def final_report(self):

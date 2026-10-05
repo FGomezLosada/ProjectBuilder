@@ -133,7 +133,7 @@ def report_html(titulo, datos, filas, vacias=(), problemas=()):
         medida = (f"{number(f['superficie_ha'])} ha" if f['superficie_ha'] is not None
                   else f"{number(f['longitud_km'], 3)} km" if f['longitud_km'] is not None else '')
         elementos = number(f['elementos'], 0) if f['elementos'] is not None else ''
-        celdas.append(f"<tr><td>{e(f['nombre'])}</td><td>{e(f['grupo'])}</td><td>{e(f['tipo'])}</td>"
+        celdas.append(f"<tr><td>{e(f['nombre'])}</td><td>{e(f['grupo'])}</td><td class='t'>{e(f['tipo'])}</td>"
                       f"<td class='n'>{elementos}</td><td class='n'>{medida}</td><td>{e(f['src'])}</td>"
                       f"<td class='n'>{human_size(f['tamano']) if f['tamano'] is not None else ''}</td><td>{e(f['detalle'])}</td></tr>")
     cabecera = ''.join(f"<tr><th>{e(k)}</th><td>{e(str(v))}</td></tr>" for k, v in datos)
@@ -150,7 +150,7 @@ body {{ font-family: Segoe UI, Arial, sans-serif; font-size: 10pt; margin: 16px;
 h1 {{ font-size: 15pt; margin-bottom: 4px; }} h2 {{ font-size: 11pt; margin-top: 18px; }}
 table {{ border-collapse: collapse; margin-top: 6px; }}
 th, td {{ border: 1px solid #ccc; padding: 3px 6px; text-align: left; vertical-align: top; }}
-th {{ background: #eef3e8; }} td.n {{ text-align: right; white-space: nowrap; }}
+th {{ background: #eef3e8; }} td.n {{ text-align: right; white-space: nowrap; }} td.t {{ white-space: nowrap; }}
 .resumen {{ background: #f6f8f4; border: 1px solid #d5e0c8; padding: 6px 8px; margin-top: 8px; }}
 .pie {{ color: #777; font-size: 8pt; margin-top: 18px; }}
 </style></head><body>

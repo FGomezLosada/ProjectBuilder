@@ -3,9 +3,9 @@ name=ProjectBuilder
 qgisMinimumVersion=3.34
 qgisMaximumVersion=4.99
 supportsQt6=True
-description=Builds a ready-to-use QGIS project from a selection of local layers and web services (WMS, WMTS, WFS)
-about=Creates a QGIS project (.qgz) in a few clicks: pick local layers from one or more folders, web services (your favourites, your QGIS connections or a built-in catalogue of Spanish public services: IGN, Cadastre, IGME, regional SDIs), the CRS and the destination folder. Layers are copied into a single GeoPackage, one GeoPackage per layer or their original format, optionally reprojected and clipped to a work area (polygon layer, selected features or rectangle, with a buffer). Print layouts from the open project or from .qpt templates can be added, and the whole form can be saved as a reusable configuration. No external dependencies. User interface in Spanish.
-version=0.6.1
+description=All-in-one QGIS project builder: packages, reprojects and clips your layers and web services into a ready-to-work, self-contained project
+about=Starting a GIS project usually means a morning of copying, reprojecting and clipping layers one by one. ProjectBuilder does it all at once: pick in a single panel the layers (local or network folders, the open QGIS project, PostGIS, SpatiaLite or GeoPackage connections), the web services (WMS, WMTS, WFS: your favourites, your QGIS connections or a built-in, automatically checked catalogue of Spanish public services: IGN, Cadastre, IGME, regional SDIs), the work area and the CRS, and it builds a self-contained .qgz project: vector layers in a single GeoPackage (or one per layer, or their original format), rasters as compressed GeoTIFF, reprojected to the project CRS and clipped to the work area (polygon layer, selected features or rectangle, with a buffer), with their styles and SVG icons, web services and print layouts centred on the area. Includes drag and drop, layer reports before and after (PDF, HTML, CSV) and saved configurations to repeat the same kind of project with one click. Runs in the background with no external dependencies. User interface in Spanish.
+version=1.0.0
 author=Francisco Gómez Losada
 email=pgomezlosada@gmail.com
 
@@ -14,6 +14,7 @@ repository=https://github.com/FGomezLosada/ProjectBuilder
 homepage=https://github.com/FGomezLosada/ProjectBuilder
 
 changelog=
+    1.0.0 - Primera versión estable. Capas del proyecto abierto y de bases de datos PostGIS, SpatiaLite y GeoPackage; arrastrar carpetas y ficheros al panel; información de cada capa al pasar el ratón y «Ver en el mapa»; informe de capas antes de crear el proyecto e informe final después (PDF, HTML, CSV); iconos SVG y estilos de GeoPackage copiados al proyecto; avisos dentro del panel; icono nuevo y botón de ayuda.
     0.6.1 - Preparado para el repositorio oficial de QGIS: descripción en inglés, licencia GPL, README bilingüe, historial de versiones y empaquetado automático.
     0.6.0 - Zona de trabajo: recorte de todas las capas por una capa de polígonos (o sus elementos seleccionados) o un rectángulo, con margen en metros; el proyecto se abre en la zona. Composiciones de impresión del proyecto abierto o de plantillas .qpt, con los mapas centrados en la zona. Configuraciones guardadas para rellenar el panel con un clic. Corrige un cierre de QGIS 4 al quitar capas con el panel abierto.
     0.5.0 - Salida a un GeoPackage único (por defecto), uno por capa o formato original. Más formatos (GeoJSON, KML, FlatGeobuf, ASC...). Varias carpetas de origen. Reproyección opcional. Panel con secciones plegables, filtro, resumen en vivo e iconos nativos. Servicios WMS, WMTS y WFS: favoritos, conexiones de QGIS y catálogo con 71 servicios. Revisión automática semanal de los servicios y catálogo actualizable desde GitHub.
@@ -22,10 +23,10 @@ changelog=
     0.2.0 - Compatibilidad con QGIS 3.34+ y QGIS 4 (Qt6). Renombrado interno a project_builder.
     0.1   - Versión inicial (TFM, 2023).
 
-tags=project, layers, wms, wmts, wfs, geopackage, clip, layout, print
+tags=project, project builder, layers, geopackage, reproject, clip, work area, package, wms, wmts, wfs, postgis, layout, print, spain
 category=Plugins
 icon=icon.png
-experimental=True
+experimental=False
 deprecated=False
 hasProcessingProvider=no
 server=False
