@@ -22,14 +22,15 @@ from qgis.core import (
     QgsProject,
     QgsGeometry,
     QgsIconUtils,
+    QgsMimeDataUtils,
     QgsRasterLayer,
     QgsRectangle,
     QgsVectorLayer,
 )
 from qgis.gui import QgsExtentWidget
 from qgis.PyQt import QtWidgets, sip, uic
-from qgis.PyQt.QtCore import QMimeData, QSettings, Qt, QTimer, QUrl
-from qgis.PyQt.QtGui import QFont
+from qgis.PyQt.QtCore import QEvent, QMimeData, QSettings, Qt, QTimer, QUrl
+from qgis.PyQt.QtGui import QColor, QDesktopServices, QFont
 from qgis.PyQt.QtNetwork import QNetworkReply, QNetworkRequest
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
@@ -43,6 +44,7 @@ from qgis.PyQt.QtWidgets import (
     QPushButton,
     QTextBrowser,
     QToolButton,
+    QToolTip,
     QTreeWidgetItem,
     QVBoxLayout,
 )
@@ -50,6 +52,7 @@ from qgis.PyQt.QtWidgets import (
 from .core import configs
 from .core import database
 from .core import icons
+from .core import info
 from .core import layouts
 from .core import open_project
 from .core import stats
@@ -75,6 +78,7 @@ from .core.formats import (
     MULTILAYER,
     RASTER,
     SINGLE,
+    SUPPORTED_EXTENSIONS,
     VECTOR,
     extension,
     layer_kind,
@@ -82,7 +86,7 @@ from .core.formats import (
     style_path,
     vector_sublayers,
 )
-from .core.scanner import LINE, POINT, POLYGON, TABLE, scan_folder
+from .core.scanner import LINE, POINT, POLYGON, TABLE, scan_entry, scan_folder
 from .core.task import ExportTask, Job
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -111,6 +115,17 @@ PROJECT_ROOT, PROJECT_GROUP, PROJECT_LAYER = 'proyecto', 'grupo_proyecto', 'capa
 DB_ROOT, DB_SCHEMA, DB_TABLE = 'basedatos', 'esquema', 'tabla_bd'  #Bloques de bases de datos (PostGIS, SpatiaLite)
 DB_ROLE = Qt.ItemDataRole.UserRole + 6  #Datos de una tabla de base de datos (proveedor, conexión, esquema, tabla, uri)
 DB_GEOMETRY = {Qgis.GeometryType.Point: POINT, Qgis.GeometryType.Line: LINE, Qgis.GeometryType.Polygon: POLYGON}
+PARTIAL_ROLE = Qt.ItemDataRole.UserRole + 7  #Carpeta de la que solo se ve lo arrastrado al panel (no todo su contenido)
+DROPPED_ROLE = Qt.ItemDataRole.UserRole + 8  #Fichero o carpeta añadido arrastrándolo (se guarda así en las configuraciones)
+INFO_ROLE = Qt.ItemDataRole.UserRole + 9  #Texto ya calculado del recuadro de información (para no volver a abrir la capa)
+FILE_KINDS = (FOLDER, VECTOR, RASTER, MULTILAYER)  #Elementos del árbol que son una ruta del disco
+MAP_KINDS = (VECTOR, RASTER, MULTILAYER, PROJECT_LAYER, DB_TABLE)  #Elementos que se pueden «Ver en el mapa»
+# Ficheros que acompañan a una capa: si se arrastran, cuentan como su capa (o se ignoran si van junto a ella)
+SIDECAR_EXTENSIONS = ('.shx', '.dbf', '.prj', '.cpg', '.qix', '.sbn', '.sbx', '.qml', '.qmd', '.tfw', '.jgw', '.pgw',
+                      '.wld', '.dat', '.id', '.map', '.ind', '.mid')
+LAYER_TREE_MIME = 'application/qgis.layertreemodeldata'  #Capas arrastradas desde el panel Capas de QGIS
+DROP_HINT = ("Arrastra aquí carpetas o ficheros de capas desde el Explorador de Windows o el Navegador de QGIS.\n"
+             "Clic derecho en una capa: «Ver en el mapa». Doble clic: lo mismo.")
 SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
 
 
@@ -213,6 +228,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setup_databases()
         self.setup_layouts()
         self.setup_configs()
+        self.setup_tree_extras()
 
         # Resumen en vivo de lo que se va a generar. Se recalcula con un pequeño retardo: al marcar una carpeta
         # Qt avisa una vez por cada elemento que cambia, y así se calcula una sola vez al final.
@@ -834,7 +850,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         def recorrer(item):
             estado = item.checkState(0)
-            if estado == Qt.CheckState.Checked:
+            if estado == Qt.CheckState.Checked and item.data(0, PARTIAL_ROLE):  #Carpeta de la que solo se ve una parte
+                for i in range(item.childCount()):
+                    recorrer(item.child(i))
+            elif estado == Qt.CheckState.Checked:
                 marcadas.append({'ruta': item.data(0, PATH_ROLE), 'capas': None})
             elif estado == Qt.CheckState.PartiallyChecked:
                 if item.data(0, KIND_ROLE) == MULTILAYER:
@@ -849,6 +868,23 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if self.treeWidget.topLevelItem(i).data(0, KIND_ROLE) == FOLDER:  #Proyecto abierto y bases de datos: aparte
                 recorrer(self.treeWidget.topLevelItem(i))
         return marcadas
+
+    def dropped_paths(self):
+        """Ficheros y carpetas añadidos arrastrándolos (fuera de una carpeta completa), para guardarlos en la configuración."""
+        rutas = []
+
+        def recorrer(item):
+            for i in range(item.childCount()):
+                hijo = item.child(i)
+                if hijo.data(0, DROPPED_ROLE):
+                    rutas.append(hijo.data(0, PATH_ROLE))
+                elif hijo.data(0, KIND_ROLE) == FOLDER and hijo.data(0, PARTIAL_ROLE):
+                    recorrer(hijo)
+
+        for raiz in self._roots(FOLDER):
+            if raiz.data(0, PARTIAL_ROLE):
+                recorrer(raiz)
+        return rutas
 
     def _databases_config(self):
         """Conexiones del árbol y sus tablas marcadas, para guardarlas en una configuración."""
@@ -866,7 +902,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         rectangulo = self.zoneExtent.outputExtent()
         crs = self.selectProjection.crs()
         return {
-            'capas': {'carpetas': self.source_folders(), 'marcadas': self._checked_items()},
+            'capas': {'carpetas': [r.data(0, PATH_ROLE) for r in self._roots(FOLDER) if not r.data(0, PARTIAL_ROLE)],
+                      'sueltos': self.dropped_paths(), 'marcadas': self._checked_items()},
             'formato': self.outputFormat.currentData(),
             'reproyectar': self.reprojectCheck.isChecked(),
             'src': crs.authid() or crs.toWkt(),
@@ -912,6 +949,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 self.add_source_folder(carpeta)
             else:
                 avisos.append(f"Ya no existe la carpeta {carpeta}")
+        for suelto in capas.get('sueltos', []):  #Lo que se añadió arrastrándolo
+            if not os.path.exists(suelto):
+                avisos.append(f"Ya no existe {suelto}")
+            elif self.add_path(suelto) is None:
+                avisos.append(f"No se puede leer {suelto}")
         elementos = {}  #ruta -> elemento del árbol
 
         def indexar(item):
@@ -1138,19 +1180,408 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return [r.data(0, PATH_ROLE) for r in raices if r.data(0, KIND_ROLE) == FOLDER]
 
     def add_source_folder(self, folder):
-        """Añade una carpeta de capas como nueva raíz del árbol (sin perder lo ya marcado en las demás)."""
+        """
+        Añade una carpeta de capas como nueva raíz del árbol (sin perder lo ya marcado en las demás). Si ya hay en el árbol
+        carpetas que están dentro de ella, se integran en la nueva conservando lo marcado.
+        """
         if not os.path.isdir(folder):
             return self.warn(f"La carpeta no existe: {folder}")
-        for existente in self.source_folders():  #No se permite repetir una carpeta ni añadir una que ya esté dentro de otra
-            if dentro_de(folder, existente) or dentro_de(existente, folder):
-                return self.warn(f"Esa carpeta ya está incluida (o incluye a otra) del árbol:\n{existente}")
-        raiz = QTreeWidgetItem(self.treeWidget, [os.path.basename(os.path.normpath(folder)) or folder])
-        raiz.setToolTip(0, folder)  #Al pasar el ratón se ve la ruta completa
-        self._setup_item(raiz, folder, FOLDER, None)
-        self._add_tree_items(raiz, scan_folder(folder))
-        raiz.setExpanded(True)
+        ya_estaba = next((r for r in self._roots(FOLDER) if dentro_de(folder, r.data(0, PATH_ROLE))
+                          and not r.data(0, PARTIAL_ROLE)), None)
+        item = self.add_path(folder)
+        if ya_estaba is not None and item is not None:
+            self.warn(f"Esa carpeta ya está en el árbol (dentro de «{ya_estaba.text(0)}»)")
         self.apply_filter(self.filterBox.text())  #Si hay una búsqueda escrita, se aplica también a la carpeta nueva
         self.update_summary()
+        return item
+
+    # ------------------------------------------------------------------ Añadir rutas (botón, arrastrar y configuraciones)
+
+    def _new_root(self, folder, partial):
+        """Raíz nueva del árbol. partial=True: carpeta de la que solo se mostrará lo que se arrastre (no se recorre)."""
+        raiz = QTreeWidgetItem(self.treeWidget, [os.path.basename(os.path.normpath(folder)) or folder])
+        raiz.setToolTip(0, folder)
+        self._setup_item(raiz, folder, FOLDER, None)
+        raiz.setData(0, PARTIAL_ROLE, partial)
+        if not partial:
+            self._add_tree_items(raiz, scan_folder(folder))
+        raiz.setExpanded(True)
+        return raiz
+
+    @staticmethod
+    def _key(item):
+        return os.path.normcase(os.path.normpath(item.data(0, PATH_ROLE) or '')), item.data(0, LAYER_ROLE)
+
+    def _leaf_checks(self, items):
+        """Capas marcadas (elementos sin hijos) bajo los elementos indicados, para volver a marcarlas tras rehacer el árbol."""
+        return {self._key(it) for raiz in items for it in [raiz, *_items_de(raiz)]
+                if it.childCount() == 0 and it.checkState(0) == Qt.CheckState.Checked}
+
+    def _restore_checks(self, item, claves):
+        for it in [item, *_items_de(item)]:
+            if it.childCount() == 0 and self._key(it) in claves:
+                it.setCheckState(0, Qt.CheckState.Checked)
+
+    def _find_path(self, raiz, path):
+        """Elemento del árbol (bajo raiz) de una carpeta o fichero; None si no está."""
+        clave = os.path.normcase(os.path.normpath(path))
+        for it in [raiz, *_items_de(raiz)]:
+            if it.data(0, KIND_ROLE) in FILE_KINDS and it.data(0, LAYER_ROLE) is None and self._key(it)[0] == clave:
+                return it
+        return None
+
+    @staticmethod
+    def _insert_sorted(padre, item):
+        """Inserta item entre los hijos de padre en orden alfabético (como el resto del árbol)."""
+        nombre = item.text(0).lower()
+        indice = next((i for i in range(padre.childCount()) if padre.child(i).text(0).lower() > nombre), padre.childCount())
+        padre.insertChild(indice, item)
+
+    def _ensure_folders(self, raiz, carpeta):
+        """Elemento de carpeta (bajo raiz) para la ruta indicada; crea las carpetas intermedias que falten."""
+        relativa = os.path.relpath(carpeta, raiz.data(0, PATH_ROLE))
+        padre, actual = raiz, raiz.data(0, PATH_ROLE)
+        if relativa == os.curdir:
+            return raiz
+        for parte in relativa.split(os.sep):
+            actual = os.path.join(actual, parte)
+            hijo = next((padre.child(i) for i in range(padre.childCount()) if padre.child(i).data(0, KIND_ROLE) == FOLDER
+                         and self._key(padre.child(i))[0] == os.path.normcase(os.path.normpath(actual))), None)
+            if hijo is None:
+                hijo = QTreeWidgetItem([parte])
+                self._setup_item(hijo, actual, FOLDER, None)
+                hijo.setData(0, PARTIAL_ROLE, True)
+                self._insert_sorted(padre, hijo)
+                hijo.setExpanded(True)
+            padre = hijo
+        return padre
+
+    def _make_item(self, entry):
+        item = QTreeWidgetItem([entry.name])
+        self._setup_item(item, entry.path, entry.kind, entry.layer, entry.geometry)
+        self._add_tree_items(item, entry.children)
+        return item
+
+    def _insert_path(self, raiz, path):
+        """Añade bajo raiz un fichero o carpeta que aún no está en el árbol. None si no es una capa admitida."""
+        entry = scan_entry(path)
+        if entry is None:
+            return None
+        padre = self._ensure_folders(raiz, os.path.dirname(os.path.normpath(path)))
+        item = self._make_item(entry)
+        item.setData(0, DROPPED_ROLE, True)
+        self._insert_sorted(padre, item)
+        return item
+
+    def _fill_folder(self, item):
+        """Una carpeta de la que solo se veía lo arrastrado pasa a mostrar todo su contenido (conservando lo marcado)."""
+        marcadas = self._leaf_checks([item])
+        item.takeChildren()
+        self._add_tree_items(item, scan_folder(item.data(0, PATH_ROLE)))
+        item.setData(0, PARTIAL_ROLE, False)
+        if item.parent() is not None:
+            item.setData(0, DROPPED_ROLE, True)
+        self._restore_checks(item, marcadas)
+
+    def add_path(self, path, check=False, layer=None):
+        """
+        Añade al árbol una carpeta o un fichero de capas y devuelve su elemento (None si no es una capa admitida).
+        - Carpeta nueva: raíz nueva con todo su contenido. Si contiene carpetas que ya estaban, se integran en ella.
+        - Fichero suelto: aparece bajo su carpeta, pero solo él (no se recorre toda la carpeta, que podría ser el Escritorio).
+        - Si ya está en el árbol, simplemente se muestra. check=True lo deja marcado (layer: solo esa capa interna).
+        """
+        path = os.path.normpath(path)
+        es_carpeta = os.path.isdir(path)
+        raices = self._roots(FOLDER)
+        raiz = next((r for r in raices if dentro_de(path, r.data(0, PATH_ROLE))), None)
+        if raiz is not None:  #Dentro de una carpeta que ya está en el árbol
+            item = self._find_path(raiz, path)
+            if item is None:
+                item = self._insert_path(raiz, path)
+            elif es_carpeta and item.data(0, PARTIAL_ROLE):
+                self._fill_folder(item)
+        elif es_carpeta:
+            contenidas = [r for r in raices if dentro_de(r.data(0, PATH_ROLE), path)]
+            marcadas = self._leaf_checks(contenidas)
+            for r in contenidas:
+                self.treeWidget.takeTopLevelItem(self.treeWidget.indexOfTopLevelItem(r))
+            item = self._new_root(path, partial=False)
+            self._restore_checks(item, marcadas)
+        else:
+            if scan_entry(path) is None:
+                return None
+            carpeta = os.path.dirname(path)
+            contenidas = [r for r in raices if dentro_de(r.data(0, PATH_ROLE), carpeta)]
+            raiz = self._new_root(carpeta, partial=True)
+            for r in contenidas:  #Carpetas que ya estaban dentro de la carpeta de este fichero: pasan a colgar de ella
+                self.treeWidget.takeTopLevelItem(self.treeWidget.indexOfTopLevelItem(r))
+                if not r.data(0, PARTIAL_ROLE):
+                    r.setData(0, DROPPED_ROLE, True)
+                self._insert_sorted(self._ensure_folders(raiz, os.path.dirname(r.data(0, PATH_ROLE))), r)
+                r.setExpanded(True)
+            item = self._insert_path(raiz, path)
+        if item is None:
+            return None
+        if check and item.parent() is not None:
+            interna = next((item.child(i) for i in range(item.childCount()) if item.child(i).data(0, LAYER_ROLE) == layer), None) \
+                if layer else None
+            (interna or item).setCheckState(0, Qt.CheckState.Checked)
+        padre = item.parent()
+        while padre is not None:  #Se despliega hasta él para que se vea
+            padre.setExpanded(True)
+            padre = padre.parent()
+        self.treeWidget.scrollToItem(item)
+        return item
+
+    @staticmethod
+    def _main_file(path):
+        """
+        Capa a la que pertenece un fichero arrastrado: el .dbf o el .prj de un shapefile cuentan como su .shp, el .aux.xml
+        de un ráster como el ráster... None si es un fichero acompañante sin su capa al lado.
+        """
+        minusculas = path.lower()
+        for sufijo in ('.aux.xml', '.ovr', '.xml'):
+            if minusculas.endswith(sufijo) and os.path.isfile(path[:-len(sufijo)]):
+                return path[:-len(sufijo)]
+        base, ext = os.path.splitext(path)
+        if ext.lower() in SIDECAR_EXTENSIONS or minusculas.endswith(('.aux.xml', '.ovr')):
+            for candidata in SUPPORTED_EXTENSIONS:
+                for variante in (base + candidata, base + candidata.upper()):
+                    if os.path.isfile(variante):
+                        return variante
+            return None
+        return path
+
+    def add_dropped(self, rutas):
+        """
+        Añade lo arrastrado al panel: carpetas y ficheros de capas (los ficheros quedan marcados), plantillas .qpt.
+        rutas: lista de rutas o de (ruta, capa interna). Devuelve la lista de avisos (lo que no se ha podido añadir).
+        """
+        avisos, vistas, ultimo = [], set(), None
+        for ruta in rutas:
+            ruta, capa = ruta if isinstance(ruta, (tuple, list)) else (ruta, None)
+            if not ruta or not os.path.exists(ruta):
+                avisos.append(f"No se encuentra {ruta}")
+                continue
+            minusculas = ruta.lower()
+            if minusculas.endswith('.qpt'):
+                self.add_layout_file(ruta)
+                continue
+            if minusculas.endswith(('.qgz', '.qgs')):
+                avisos.append(f"{os.path.basename(ruta)} es un proyecto: ábrelo en QGIS y sus capas aparecerán en «Proyecto abierto en QGIS»")
+                continue
+            principal = ruta if os.path.isdir(ruta) else self._main_file(ruta)
+            if principal is None:
+                continue  #Fichero acompañante (.dbf, .qml...) cuya capa no está al lado: se ignora
+            clave = (os.path.normcase(os.path.normpath(principal)), capa)
+            if clave in vistas:  #Al arrastrar un shapefile con todos sus ficheros, se añade una sola vez
+                continue
+            vistas.add(clave)
+            item = self.add_path(principal, check=not os.path.isdir(principal), layer=capa)
+            if item is None:
+                avisos.append(f"{os.path.basename(ruta)} no es una capa que pueda leer QGIS")
+            else:
+                ultimo = item
+        if ultimo is not None:
+            self.treeWidget.scrollToItem(ultimo)
+        self.apply_filter(self.filterBox.text())
+        self.update_summary()
+        return avisos
+
+    # ------------------------------------------------------------------ Arrastrar, información y «Ver en el mapa» (V4, V5, V8)
+
+    def setup_tree_extras(self):
+        """Arrastrar carpetas y ficheros al panel, recuadro de información al pasar el ratón y menú con clic derecho."""
+        self.setAcceptDrops(True)  #Se puede soltar en cualquier parte del panel
+        self.pending_drops = []
+        self.dropTimer = QTimer(self)  #Lo soltado se procesa justo después: así el Explorador no se queda esperando
+        self.dropTimer.setSingleShot(True)
+        self.dropTimer.setInterval(0)
+        self.dropTimer.timeout.connect(self.process_drops)
+        self.treeWidget.viewport().installEventFilter(self)
+        self.treeWidget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.treeWidget.customContextMenuRequested.connect(self.show_tree_menu)
+        self.treeWidget.itemDoubleClicked.connect(self.tree_double_clicked)
+        self.addFolderButton.setToolTip("Añade una carpeta de capas al árbol. Se pueden añadir varias.\n"
+                                        "También puedes arrastrar carpetas o ficheros al panel desde el Explorador o el Navegador de QGIS.")
+
+    def drop_paths(self, mime):
+        """Rutas (ruta, capa interna) de lo que se arrastra; None si no se admite (p. ej. capas del panel Capas de QGIS)."""
+        if mime is None or mime.hasFormat(LAYER_TREE_MIME):  #Ya están en «Proyecto abierto en QGIS»; además, aceptarlas podría quitarlas del proyecto
+            return None
+        rutas = []
+        if QgsMimeDataUtils.isUriList(mime):  #Desde el Navegador de QGIS
+            for uri in QgsMimeDataUtils.decodeUriList(mime):
+                if uri.layerType == 'directory':
+                    rutas.append((uri.uri, None))
+                elif uri.providerKey in ('ogr', 'gdal'):
+                    partes = uri.uri.split('|')
+                    capa = next((p.split('=', 1)[1] for p in partes[1:] if p.startswith('layername=')), None)
+                    rutas.append((partes[0], capa))
+        if not rutas and mime.hasUrls():  #Desde el Explorador de Windows
+            rutas = [(url.toLocalFile(), None) for url in mime.urls() if url.isLocalFile()]
+        return rutas or None
+
+    def _accept_drag(self, event):
+        acciones = event.possibleActions()
+        if self.drop_paths(event.mimeData()) and (acciones & Qt.DropAction.CopyAction) == Qt.DropAction.CopyAction:
+            event.setDropAction(Qt.DropAction.CopyAction)  #Siempre copiar: el origen nunca debe borrar nada
+            event.accept()
+            return True
+        event.ignore()
+        return False
+
+    def dragEnterEvent(self, event):
+        if self._accept_drag(event):
+            self.treeWidget.setStyleSheet("QTreeWidget { border: 2px dashed palette(highlight); }")
+
+    def dragMoveEvent(self, event):
+        self._accept_drag(event)
+
+    def dragLeaveEvent(self, event):
+        self.treeWidget.setStyleSheet("")
+
+    def dropEvent(self, event):
+        self.treeWidget.setStyleSheet("")
+        rutas = self.drop_paths(event.mimeData())
+        if not rutas:
+            return event.ignore()
+        event.setDropAction(Qt.DropAction.CopyAction)
+        event.accept()
+        self.pending_drops += rutas
+        self.dropTimer.start()
+
+    def process_drops(self):
+        rutas, self.pending_drops = self.pending_drops, []
+        if not rutas or sip.isdeleted(self):
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Una carpeta grande puede tardar unos segundos
+        try:
+            avisos = self.add_dropped(rutas)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if avisos:
+            self.warn("No se ha podido añadir todo:\n\n- " + "\n- ".join(avisos))
+
+    def eventFilter(self, obj, event):
+        """Recuadro de información al pasar el ratón por el árbol de capas (se calcula al momento y se recuerda)."""
+        if event.type() == QEvent.Type.ToolTip and not sip.isdeleted(self) and obj == self.treeWidget.viewport():
+            item = self.treeWidget.itemAt(event.pos())
+            texto = self.item_info(item) if item is not None else DROP_HINT
+            if texto:
+                QToolTip.showText(event.globalPos(), texto, obj)
+                return True
+        return super().eventFilter(obj, event)
+
+    def item_info(self, item):
+        """Texto del recuadro de información de un elemento del árbol (None: se usa el normal del elemento)."""
+        guardado = item.data(0, INFO_ROLE)
+        if guardado:
+            return guardado
+        tipo, ruta, capa = item.data(0, KIND_ROLE), item.data(0, PATH_ROLE), item.data(0, LAYER_ROLE)
+        if tipo == FOLDER:
+            capas = [it for it in _items_de(item) if it.data(0, KIND_ROLE) in (VECTOR, RASTER)]
+            ficheros = {os.path.normcase(it.data(0, PATH_ROLE)): it.data(0, PATH_ROLE) for it in capas}
+            texto = info.describe_folder(ruta, len(capas), sum(info.file_size(f) for f in ficheros.values()))
+            if item.data(0, PARTIAL_ROLE):
+                texto += "\nSolo se muestra lo que has arrastrado al panel"
+        elif tipo == MULTILAYER:
+            texto = info.describe_file(ruta, sublayers=item.childCount())
+        elif tipo in (VECTOR, RASTER):
+            texto = info.describe_file(ruta, capa)
+        elif tipo == PROJECT_LAYER:
+            capa_proyecto = QgsProject.instance().mapLayer(capa)
+            if capa_proyecto is None:
+                return None
+            lineas = info.layer_lines(capa_proyecto)
+            if open_project.how(capa_proyecto) == open_project.LINK:
+                lineas = lineas[:1]  #De un servicio web solo tiene sentido el SRC
+            texto = item.toolTip(0) + "\n" + "\n".join(lineas)
+        else:
+            return None
+        item.setData(0, INFO_ROLE, texto)
+        return texto
+
+    def _map_layers(self, item):
+        """Capas (sin añadir al proyecto) de un elemento del árbol, para «Ver en el mapa»."""
+        tipo, ruta, capa = item.data(0, KIND_ROLE), item.data(0, PATH_ROLE), item.data(0, LAYER_ROLE)
+        if tipo in (VECTOR, RASTER):
+            return [info.open_layer(ruta, capa)]
+        if tipo == MULTILAYER:
+            return [info.open_layer(ruta, item.child(i).data(0, LAYER_ROLE)) for i in range(item.childCount())]
+        if tipo == PROJECT_LAYER:
+            return [QgsProject.instance().mapLayer(capa)]
+        if tipo == DB_TABLE:
+            datos = item.data(0, DB_ROLE)
+            return [QgsVectorLayer(datos['uri'], datos['tabla'], datos['proveedor'])]
+        return []
+
+    def show_on_map(self, item):
+        """«Ver en el mapa»: lleva el mapa de QGIS a la capa y hace parpadear su extensión en rojo."""
+        lienzo = self.iface.mapCanvas()
+        if lienzo is None or item is None:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Una tabla de una base de datos puede tardar en abrirse
+        try:
+            capas = [c for c in self._map_layers(item) if c is not None and c.isValid()]
+            destino = lienzo.mapSettings().destinationCrs()
+            if not destino.isValid():  #Mapa vacío, sin SRC: se usa el de la capa
+                destino = next((c.crs() for c in capas if c.crs().isValid()), QgsCoordinateReferenceSystem('EPSG:4326'))
+                lienzo.setDestinationCrs(destino)
+            rectangulo = info.map_extent(capas, destino)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if rectangulo is None:
+            return self.warn(f"«{item.text(0)}» no se puede abrir o no tiene elementos: no hay nada que ver en el mapa")
+        if rectangulo.isEmpty():  #Un solo punto: se centra el mapa en él, sin cambiar la escala
+            lienzo.setCenter(rectangulo.center())
+        else:
+            vista = QgsRectangle(rectangulo)
+            vista.scale(1.15)  #Un poco de margen alrededor
+            lienzo.setExtent(vista)
+        lienzo.refresh()
+        lienzo.flashGeometries([QgsGeometry.fromRect(rectangulo)], destino, QColor(220, 0, 0, 255), QColor(220, 0, 0, 0), 4, 400)
+        self.last_map_extent = rectangulo  #Para las pruebas
+
+    def tree_double_clicked(self, item, columna=0):
+        """Doble clic en una capa: «Ver en el mapa» (en carpetas y GeoPackages, el doble clic solo despliega)."""
+        if item is not None and item.childCount() == 0 and item.data(0, KIND_ROLE) in MAP_KINDS:
+            self.show_on_map(item)
+
+    def open_in_explorer(self, ruta):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(ruta))
+
+    def remove_root_of(self, item):
+        self.treeWidget.setCurrentItem(item)
+        self.remove_current_folder()
+
+    def tree_menu(self, item):
+        """Menú del clic derecho en el árbol de capas (método aparte para las pruebas)."""
+        menu = QMenu(self)
+        if item is None:
+            menu.addAction(QgsApplication.getThemeIcon('/symbologyAdd.svg'), "Añadir carpeta…", self.select_layers_folder)
+            return menu
+        tipo = item.data(0, KIND_ROLE)
+        if tipo in MAP_KINDS:
+            menu.addAction(QgsApplication.getThemeIcon('/mActionZoomToLayer.svg'), "Ver en el mapa", partial(self.show_on_map, item))
+        if tipo in FILE_KINDS and item.data(0, PATH_ROLE):
+            ruta = item.data(0, PATH_ROLE)
+            carpeta = ruta if os.path.isdir(ruta) else os.path.dirname(ruta)
+            menu.addAction(QgsApplication.getThemeIcon('/mIconFolderOpen.svg'), "Abrir la carpeta", partial(self.open_in_explorer, carpeta))
+        raiz = item
+        while raiz.parent() is not None:
+            raiz = raiz.parent()
+        if raiz.data(0, KIND_ROLE) in (FOLDER, DB_ROOT):
+            if not menu.isEmpty():
+                menu.addSeparator()
+            menu.addAction(QgsApplication.getThemeIcon('/symbologyRemove.svg'), f"Quitar «{raiz.text(0)}» del árbol",
+                           partial(self.remove_root_of, raiz))
+        return menu
+
+    def show_tree_menu(self, posicion):
+        menu = self.tree_menu(self.treeWidget.itemAt(posicion))
+        if not menu.isEmpty():
+            menu.exec(self.treeWidget.viewport().mapToGlobal(posicion))
 
     def remove_current_folder(self):
         """Quita del árbol la carpeta de capas a la que pertenece el elemento en el que se ha hecho clic."""
@@ -1561,10 +1992,26 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             fichero = open_project.file_path(capa)
             if fichero and dentro_de(fichero, folder_project):
                 return f"La capa «{capa.name()}» está dentro de la carpeta del proyecto: elige otra carpeta de destino"
-        for carpeta in self.source_folders():
-            if dentro_de(folder_project, carpeta):
-                return f"La carpeta del proyecto no puede ser una carpeta de capas ni estar dentro de ella:\n{carpeta}"
+        for raiz in self._roots(FOLDER):
+            carpeta = raiz.data(0, PATH_ROLE)
+            if not raiz.data(0, PARTIAL_ROLE):
+                if dentro_de(folder_project, carpeta):
+                    return f"La carpeta del proyecto no puede ser una carpeta de capas ni estar dentro de ella:\n{carpeta}"
+                continue
+            for ruta in self._partial_paths(raiz):  #De una carpeta arrastrada a medias solo cuenta lo que se ve de ella
+                if dentro_de(ruta, folder_project) or (os.path.isdir(ruta) and dentro_de(folder_project, ruta)):
+                    return f"La carpeta del proyecto no puede contener las capas de origen ni estar dentro de ellas:\n{ruta}"
         return None
+
+    def _partial_paths(self, raiz):
+        """Ficheros y carpetas completas que se ven bajo una carpeta arrastrada a medias."""
+        rutas = []
+        for it in _items_de(raiz):
+            padre = it.parent()
+            if it.data(0, LAYER_ROLE) is None and it.data(0, KIND_ROLE) in FILE_KINDS and not it.data(0, PARTIAL_ROLE) \
+                    and padre.data(0, PARTIAL_ROLE):  #Cuelga directamente de una carpeta a medias (la raíz también lo es)
+                rutas.append(it.data(0, PATH_ROLE))
+        return rutas
 
     @staticmethod
     def _source_styles(path_source, names=None):

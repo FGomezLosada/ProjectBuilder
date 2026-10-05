@@ -40,6 +40,28 @@ def _geometry(sublayer):
             Qgis.GeometryType.Polygon: POLYGON}.get(tipo, TABLE)
 
 
+def scan_entry(path):
+    """
+    Entry de una sola ruta: una carpeta (con todo su contenido) o un fichero con un formato admitido.
+    Devuelve None si el fichero no es una capa admitida (p. ej. un .dbf suelto o un .json que no es GeoJSON).
+    """
+    name = os.path.basename(os.path.normpath(path)) or path
+    ext = extension(path)
+    if os.path.isdir(path):  #Se recorre también su contenido (recursivo)
+        return Entry(name, path, FOLDER, scan_folder(path))
+    if ext in RASTER_EXTENSIONS:
+        return Entry(name, path, RASTER)
+    if ext in VECTOR_EXTENSIONS:
+        sublayers = vector_sublayers(path)  #Se consulta una sola vez qué capas tiene el fichero
+        if not sublayers:
+            return None
+        if ext in CONTAINER_EXTENSIONS or len(sublayers) > 1:  #Sus capas internas se muestran como hijos (GeoPackage, KML con carpetas...)
+            capas = [Entry(s.name(), path, VECTOR, layer=s.name(), geometry=_geometry(s)) for s in sublayers]
+            return Entry(name, path, MULTILAYER, capas)
+        return Entry(name, path, VECTOR, geometry=_geometry(sublayers[0]))
+    return None
+
+
 def scan_folder(start_path):
     """
     Recorre start_path (y sus subcarpetas) y devuelve la lista de Entry.
@@ -47,19 +69,7 @@ def scan_folder(start_path):
     """
     entries = []
     for name in sorted(os.listdir(start_path), key=str.lower):
-        path = os.path.join(start_path, name)
-        ext = extension(path)
-        if os.path.isdir(path):  #Se comprueba si es un directorio y se recorre también (recursivo)
-            entries.append(Entry(name, path, FOLDER, scan_folder(path)))
-        elif ext in RASTER_EXTENSIONS:
-            entries.append(Entry(name, path, RASTER))
-        elif ext in VECTOR_EXTENSIONS:
-            sublayers = vector_sublayers(path)  #Se consulta una sola vez qué capas tiene el fichero
-            if not sublayers:  #Por ejemplo un .json que no es GeoJSON: no se muestra
-                continue
-            if ext in CONTAINER_EXTENSIONS or len(sublayers) > 1:  #Sus capas internas se muestran como hijos (GeoPackage, KML con carpetas...)
-                capas = [Entry(s.name(), path, VECTOR, layer=s.name(), geometry=_geometry(s)) for s in sublayers]
-                entries.append(Entry(name, path, MULTILAYER, capas))
-            else:
-                entries.append(Entry(name, path, VECTOR, geometry=_geometry(sublayers[0])))
+        entry = scan_entry(os.path.join(start_path, name))
+        if entry is not None:
+            entries.append(entry)
     return entries

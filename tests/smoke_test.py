@@ -116,12 +116,16 @@ multi = [it.childCount() for it in _items(dw.treeWidget.invisibleRootItem()) if 
 dw.filterBox.setText("PUNTOS")  # en mayúsculas a propósito: la búsqueda no distingue
 visibles = [it.text(0) for it in _items(dw.treeWidget.invisibleRootItem()) if not it.isHidden() and it.childCount() == 0]
 dw.filterBox.clear()
-dw.add_source_folder(DATA)  # contiene a las otras dos: debe rechazarse
-rechazo = len(avisos) == 1
 avisos.clear()
 dw.treeWidget.setCurrentItem(dw.treeWidget.topLevelItem(1).child(0))  # una capa de la carpeta raster
 dw.remove_current_folder()
 tras_quitar = [dw.treeWidget.topLevelItem(i).text(0) for i in range(dw.treeWidget.topLevelItemCount())]
+[it for it in _items(dw.treeWidget.topLevelItem(0)) if it.text(0) == 'zonas_4326.shp'][0].setCheckState(0, Qt.CheckState.Checked)
+dw.add_source_folder(DATA)  # contiene a 'vectorial': la integra, sin perder lo marcado
+integra = (not avisos and [dw.treeWidget.topLevelItem(i).text(0) for i in range(dw.treeWidget.topLevelItemCount())] == ['data']
+           and [it.checkState(0) for it in _items(dw.treeWidget.topLevelItem(0)) if it.text(0) == 'zonas_4326.shp']
+           == [Qt.CheckState.Checked])
+avisos.clear()
 # Servicios web: tres bloques, catálogo y favoritos
 raices_serv = [dw.servicesTree.topLevelItem(i).text(0) for i in range(dw.servicesTree.topLevelItemCount())]
 capas_cat = [it for it in dw._service_leaves() if it.text(0) == 'Mapa base IGN']
@@ -185,7 +189,7 @@ checks = {
     "[árbol] dos carpetas de origen": raices == ['vectorial', 'raster'],
     "[árbol] GeoPackage con sus 2 capas": multi == [2],
     "[árbol] búsqueda 'PUNTOS' deja solo puntos_23030.shp": visibles == ['puntos_23030.shp'],
-    "[árbol] rechaza una carpeta que contiene a otras": rechazo,
+    "[árbol] una carpeta que contiene a otra la integra, sin perder lo marcado": integra,
     "[árbol] quitar carpeta": tras_quitar == ['vectorial'],
     "[árbol] botón Limpiar vacía el formulario": limpio,
     "[panel] resumen '9 capas · un solo GeoPackage' (carpetas enteras)": resumen.startswith("9 capas · un solo GeoPackage"),

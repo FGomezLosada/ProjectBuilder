@@ -155,11 +155,11 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | V1 ✅ | Panel en 3 secciones plegables (1 Capas · 2 Servicios · 3 Proyecto) en lugar de pestañas | Todo a la vista y en orden de uso; los WMS dejan de estar "escondidos" |
 | V2 ✅ | Resumen en vivo junto al botón: "7 capas · 2 WMS · un solo GeoPackage" | Saber qué se va a generar antes de pulsar |
 | V3 ✅ | Iconos de QGIS según geometría y tipo (punto/línea/polígono, ráster, GeoPackage, carpeta) | Árbol más legible y con el aspecto nativo de QGIS (y de su tema oscuro) |
-| V4 | Información al pasar el ratón por una capa: ruta, SRC, nº de elementos, tamaño | Elegir sin abrir las capas |
-| V5 | "Ver en el mapa": resaltar la extensión de la capa al hacer clic | Comprobar de un vistazo dónde cae cada capa |
+| V4 ✅ | Información al pasar el ratón por una capa: ruta, SRC, nº de elementos, tamaño | Elegir sin abrir las capas |
+| V5 ✅ | "Ver en el mapa": resaltar la extensión de la capa al hacer clic | Comprobar de un vistazo dónde cae cada capa |
 | V6 | Avisos dentro del propio panel (barra de mensajes) en lugar de ventanas emergentes | Menos interrupciones |
 | V7 | Informe final: capas exportadas, tamaño, tiempo, problemas, botones "Abrir proyecto" y "Abrir carpeta" | Cierre claro del proceso |
-| V8 | Arrastrar carpetas o ficheros desde el Explorador de Windows al árbol | Añadir orígenes más rápido |
+| V8 ✅ | Arrastrar carpetas o ficheros desde el Explorador de Windows al árbol | Añadir orígenes más rápido |
 | V9 | Icono nuevo en SVG y botón de ayuda que abre el README | Imagen más profesional |
 
 ## Publicación de una versión

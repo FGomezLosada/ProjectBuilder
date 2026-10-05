@@ -1,6 +1,10 @@
 # Changelog / Historial de versiones
 
 ## Próxima versión
+- **Arrastrar al panel** carpetas y ficheros de capas desde el Explorador de Windows o el Navegador de QGIS (también capas sueltas de un GeoPackage y plantillas `.qpt`). Un fichero suelto aparece bajo su carpeta, ya marcado, sin recorrer el resto de la carpeta; un shapefile con todos sus ficheros cuenta como una capa. Se guarda en las configuraciones.
+- Al añadir una carpeta que contiene otra que ya estaba en el árbol, se integra en ella sin perder lo marcado (antes se rechazaba).
+- **Información al pasar el ratón** por una capa: ruta, SRC, geometría y número de elementos (o píxeles y bandas), y tamaño; en carpetas y GeoPackages, cuántas capas tienen.
+- **Ver en el mapa** (clic derecho o doble clic en una capa): lleva el mapa a la capa y hace parpadear su extensión. El menú también permite abrir la carpeta o quitarla del árbol.
 - **Iconos de los estilos**: los SVG e imágenes que usan las capas se copian a la carpeta `iconos/` del proyecto, que queda autónomo (se puede mover o enviar y los iconos se siguen viendo). Si la ruta guardada en el estilo ya no existe (por ejemplo, viene de otro ordenador), el icono se busca por su nombre en las carpetas de capas y sus subcarpetas, en la carpeta del proyecto abierto y en las carpetas SVG de QGIS. Avisa de los que siguen sin encontrarse.
 - Se conservan los **estilos guardados dentro de un GeoPackage de origen** (antes solo se usaba el `.qml` junto al fichero).
 - **Bases de datos PostGIS, SpatiaLite y GeoPackage conectados** como origen: botón «Añadir base de datos» con las conexiones de QGIS; esquemas y tablas (también vistas) en el árbol; se descargan en segundo plano, solo lo que cae en la zona de trabajo, y conservan el estilo guardado en la base de datos.

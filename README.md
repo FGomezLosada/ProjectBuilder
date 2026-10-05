@@ -19,6 +19,7 @@ ProjectBuilder creates a QGIS project (`.qgz`) in a few clicks:
 - **Print layouts** from the open project or from `.qpt` templates, with their maps centred on the work area.
 - **Layers report**: before creating the project, see each layer's type, feature count, area or length, CRS and size (clipped to the work area); save it as PDF, HTML or CSV.
 - **Self-contained projects**: SVG icons used by the styles are copied into an `iconos/` folder; styles stored inside GeoPackages are kept.
+- **Drag and drop** folders and layer files from the file explorer or the QGIS Browser; hover a layer for its CRS, feature count and size, and double-click it to see it on the map.
 - **Saved configurations** to repeat the same kind of project with one click.
 - Runs in the background, with progress and cancel. No external dependencies.
 
@@ -54,7 +55,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/Pr
 ### Uso
 **Configuración** (arriba): elige una configuración guardada para rellenar el panel, o guarda la actual con 💾.
 
-1. **Capas**: arriba del árbol aparecen las capas del **proyecto abierto en QGIS**; márcalas igual que las de las carpetas. Pulsa *Añadir carpeta…* (tantas veces como orígenes necesites) y marca las capas o carpetas (☑). La caja de búsqueda filtra; los GeoPackage se despliegan para elegir capas sueltas. Elige el **formato de salida**.
+1. **Capas**: arriba del árbol aparecen las capas del **proyecto abierto en QGIS**; márcalas igual que las de las carpetas. Pulsa *Añadir carpeta…* (tantas veces como orígenes necesites) y marca las capas o carpetas (☑). También puedes **arrastrar carpetas o ficheros** al panel desde el Explorador o el Navegador de QGIS (los ficheros sueltos entran ya marcados). Al pasar el ratón por una capa ves su SRC, elementos y tamaño; con **doble clic** (o clic derecho → *Ver en el mapa*) el mapa va a ella. La caja de búsqueda filtra; los GeoPackage se despliegan para elegir capas sueltas. Elige el **formato de salida**.
 2. **Servicios web** (opcional): activa la sección y marca las capas. Despliega un servicio para ver sus capas; **★** guarda una capa en Favoritos y **+** crea una conexión nueva en QGIS.
 
    ![Servicios web](docs/captura_servicios.png)
@@ -67,10 +68,7 @@ El plugin comprueba sus servicios una vez por semana (en segundo plano): los que
 Para ampliar el catálogo, edita `services.json` (grupos con `nombre` y `servicios`; cada servicio con `name`, `url`, `type` y opcionalmente `layer`) o propón uno en [Issues](https://github.com/FGomezLosada/ProjectBuilder/issues).
 
 ### Desarrollo
-Ver [`docs/DESARROLLO.md`](docs/DESARROLLO.md) y el [historial de versiones](CHANGELOG.md). Pruebas desde la consola de Python de QGIS:
-```python
-exec(open(r"RUTA\ProjectBuilder\tests\smoke_test.py", encoding="utf-8").read())
-```
+Ver [`docs/DESARROLLO.md`](docs/DESARROLLO.md) y el [historial de versiones](CHANGELOG.md). Pruebas: doble clic en `tools\probar.bat` (las lanza todas en QGIS 3.40 y 4, cada una en un QGIS sin ventana).
 El ZIP para publicar se genera con `python tools/package.py`.
 
 ### Autor y licencia

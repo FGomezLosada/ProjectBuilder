@@ -130,7 +130,7 @@ checks = {
     "aparece en la lista y en el desplegable": nombres == ['Prueba Nerja'] and 'Prueba Nerja' in en_desplegable,
     "al cargarla el panel queda igual": cargada == original,
     "mismas capas marcadas": fuentes_b == fuentes_a and len(fuentes_a) >= 4,
-    "carpeta entera guardada como carpeta": any(m['ruta'].endswith('/raster') and m['capas'] is None
+    "carpeta entera guardada como carpeta": any(m['ruta'].replace('\\', '/').endswith('/raster') and m['capas'] is None
                                                 for m in original['capas']['marcadas']),
     "recupera la selección de la zona": seleccion_b == [0],
     "el desplegable se queda en la configuración elegida": elegida == "Prueba Nerja",

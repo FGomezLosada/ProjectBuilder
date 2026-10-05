@@ -26,4 +26,5 @@ pb_diagnostico.txt
 pb_crash.txt
 # Resultados de tools/run_tests.py
 tests/resultados_*.txt
+tests/salida_probar.txt
 pb_res_*.txt
