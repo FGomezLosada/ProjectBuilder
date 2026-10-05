@@ -70,9 +70,15 @@
               </widget>
              </item>
              <item>
+              <widget class="QToolButton" name="addDatabaseButton">
+               <property name="text"><string>Añadir base de datos</string></property>
+               <property name="toolTip"><string>Añade al árbol las tablas de una conexión PostGIS o SpatiaLite de QGIS (o crea una nueva)</string></property>
+              </widget>
+             </item>
+             <item>
               <widget class="QPushButton" name="removeFolderButton">
-               <property name="text"><string>Quitar carpeta</string></property>
-               <property name="toolTip"><string>Haz clic en una carpeta del árbol (o en cualquier capa suya) y pulsa aquí</string></property>
+               <property name="text"><string>Quitar</string></property>
+               <property name="toolTip"><string>Haz clic en una carpeta o base de datos del árbol (o en cualquier capa suya) y pulsa aquí para quitarla</string></property>
               </widget>
              </item>
              <item>

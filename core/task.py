@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 
 from qgis.core import QgsProcessingFeedback, QgsTask
 
+from qgis.core import QgsProcessingUtils, QgsVectorLayer
+
+from .clip import zone_uri
+from .database import DatabaseError, download
 from .exporter import EmptyLayer, ExportError, export_layer, export_to_shared_geopackage
 
 
@@ -21,6 +25,8 @@ class Job:
     clip: bool = True  #Recortar por la zona de trabajo (la propia zona no se recorta)
     zone: bool = False  #Es la capa de la zona de trabajo (va arriba del todo en el proyecto)
     name: str = None  #Nombre de la capa en el proyecto (las del proyecto abierto conservan el suyo)
+    provider: str = None  #Tabla de base de datos ('postgres', 'spatialite'): source es su uri y se descarga antes
+    db_layer: str = None  #Nombre de la capa en el GeoPackage temporal de la descarga
 
 
 @dataclass
@@ -60,6 +66,8 @@ class ExportTask(QgsTask):
                 return False
             zone = self.zone if job.clip else None
             try:
+                if job.provider:  #Tabla de base de datos: se descarga a un GeoPackage temporal y sigue como un fichero más
+                    job.source = self._download(job, zone)
                 if job.tables is not None:  #Modo "un solo GeoPackage"
                     vacias = export_to_shared_geopackage(job.source, job.target, job.tables, self.crs,
                                                          feedback=self.feedback, zone=zone)
@@ -73,12 +81,26 @@ class ExportTask(QgsTask):
                                          zone=zone, empty=vacias)
                     self.empty += vacias
                     self.outputs.append(Output(final, job.group, qml=job.qml, zone=job.zone, name=job.name))  #Ruta final (puede haber cambiado de formato)
+            except DatabaseError as e:
+                self.errors.append(str(e))
             except EmptyLayer:
                 self.empty.append(os.path.splitext(os.path.basename(job.source))[0])  #No es un error: se avisa al final
             except ExportError as e:
                 self.errors.append(str(e))  #Si una capa falla se anota y se sigue con las demás
             self.setProgress((i + 1) * 100 / total)
         return True
+
+    @staticmethod
+    def _download(job, zone):
+        """Descarga la tabla (solo lo que cae en el rectángulo de la zona, si la hay). Devuelve el GeoPackage temporal."""
+        destino = QgsProcessingUtils.generateTempFilename(f"{job.db_layer}.gpkg")
+        os.makedirs(os.path.dirname(destino), exist_ok=True)
+        extension = None
+        if zone:
+            capa_zona = QgsVectorLayer(zone_uri(zone), 'zona', 'ogr')
+            extension = (capa_zona.extent(), capa_zona.crs())
+        download(job.source, job.provider, destino, job.db_layer, extension)
+        return destino
 
     def cancel(self):
         self.feedback.cancel()  #Detiene también el algoritmo que se esté ejecutando en ese momento

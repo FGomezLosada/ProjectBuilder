@@ -10,6 +10,7 @@ license   : GNU GPL v2 or later
 """
 
 import datetime
+from functools import partial
 import os
 import unicodedata
 
@@ -41,11 +42,13 @@ from qgis.PyQt.QtWidgets import (
     QMessageBox,
     QPushButton,
     QTextBrowser,
+    QToolButton,
     QTreeWidgetItem,
     QVBoxLayout,
 )
 
 from .core import configs
+from .core import database
 from .core import layouts
 from .core import open_project
 from .core import stats
@@ -102,6 +105,9 @@ SERVICE_ROLE = Qt.ItemDataRole.UserRole + 3  #Servicio web (diccionario) de cada
 LAYOUT_ROLE = Qt.ItemDataRole.UserRole + 5  #Composición de cada elemento de la lista: ['proyecto', nombre] o ['fichero', ruta]
 NODE_ROLE = Qt.ItemDataRole.UserRole + 4  #Tipo de nodo del árbol de servicios: raíz, grupo, servicio (desplegable) o capa
 PROJECT_ROOT, PROJECT_GROUP, PROJECT_LAYER = 'proyecto', 'grupo_proyecto', 'capa_proyecto'  #Bloque del proyecto abierto
+DB_ROOT, DB_SCHEMA, DB_TABLE = 'basedatos', 'esquema', 'tabla_bd'  #Bloques de bases de datos (PostGIS, SpatiaLite)
+DB_ROLE = Qt.ItemDataRole.UserRole + 6  #Datos de una tabla de base de datos (proveedor, conexión, esquema, tabla, uri)
+DB_GEOMETRY = {Qgis.GeometryType.Point: POINT, Qgis.GeometryType.Line: LINE, Qgis.GeometryType.Polygon: POLYGON}
 SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
 
 
@@ -118,6 +124,13 @@ def nombre_unico(nombre, usados):
         n += 1
     usados.add(candidato.lower())
     return candidato
+
+
+def _items_de(item):
+    """Todos los elementos que cuelgan de item (recorrido recursivo, sin QTreeWidgetItemIterator)."""
+    for i in range(item.childCount()):
+        yield item.child(i)
+        yield from _items_de(item.child(i))
 
 
 def dentro_de(ruta, carpeta):
@@ -194,6 +207,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.selectProjection.crsChanged.connect(self.remember_crs)
         self.setup_zone()
         self.setup_open_project()
+        self.setup_databases()
         self.setup_layouts()
         self.setup_configs()
 
@@ -284,6 +298,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 filas.append(stats.layer_stats(QgsVectorLayer(subcapa.uri(), nombre, 'ogr'), grupo, zona, elipsoide))
         for grupos, capa in self.selected_project_layers():
             filas.append(stats.layer_stats(capa, grupos, zona if open_project.how(capa) == open_project.COPY else None, elipsoide))
+        for t in self.selected_db_tables():
+            filas.append(stats.layer_stats(QgsVectorLayer(t['uri'], t['tabla'], t['proveedor']), self._db_groups(t), zona, elipsoide,
+                                           with_size=False))
         if self.addWMS.isChecked():
             filas += [stats.service_row(s.name) for s in self.selected_services()]
         return filas
@@ -355,6 +372,128 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         QApplication.clipboard().setMimeData(datos)
         self.iface.messageBar().pushMessage("ProjectBuilder", "Tabla de capas copiada al portapapeles",
                                             level=Qgis.MessageLevel.Info, duration=4)
+
+    # ------------------------------------------------------------------ Bases de datos: PostGIS y SpatiaLite (4.7)
+
+    def setup_databases(self):
+        """Botón «Añadir base de datos» con un menú de las conexiones guardadas en QGIS (se rellena al abrirlo)."""
+        self.addDatabaseButton.setIcon(QgsApplication.getThemeIcon('/mIconPostgis.svg'))
+        self.addDatabaseButton.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.addDatabaseButton.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(self.addDatabaseButton)
+        menu.aboutToShow.connect(self.fill_database_menu)  #Así salen también las conexiones creadas después
+        self.addDatabaseButton.setMenu(menu)
+
+    def fill_database_menu(self):
+        menu = self.addDatabaseButton.menu()
+        menu.clear()
+        conexiones = database.connections()
+        for provider, (titulo, icono) in database.PROVIDERS.items():
+            cabecera = menu.addAction(titulo)
+            cabecera.setEnabled(False)
+            propias = [nombre for p, nombre in conexiones if p == provider]
+            for nombre in propias:
+                accion = menu.addAction(QgsApplication.getThemeIcon(icono), nombre)
+                accion.triggered.connect(partial(self.add_database, provider, nombre))
+            if not propias:
+                menu.addAction("    (no hay conexiones)").setEnabled(False)
+        menu.addSeparator()
+        menu.addAction("Nueva conexión PostGIS…", partial(self.iface.openDataSourceManagerPage, 'postgres'))
+        menu.addAction("Nueva conexión SpatiaLite…", partial(self.iface.openDataSourceManagerPage, 'spatialite'))
+
+    def _roots(self, kind):
+        raices = (self.treeWidget.topLevelItem(i) for i in range(self.treeWidget.topLevelItemCount()))
+        return [r for r in raices if r.data(0, KIND_ROLE) == kind]
+
+    def _setup_db_item(self, item, kind, path, icon):
+        item.setData(0, PATH_ROLE, path)
+        item.setData(0, KIND_ROLE, kind)
+        item.setData(0, LAYER_ROLE, None)
+        item.setIcon(0, QgsApplication.getThemeIcon(icon))
+        flags = item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+        if kind != DB_TABLE:
+            flags |= Qt.ItemFlag.ItemIsAutoTristate  #Marcar la conexión o un esquema marca todas sus tablas
+        item.setFlags(flags)
+        item.setCheckState(0, Qt.CheckState.Unchecked)
+
+    def add_database(self, provider, name, *args, avisos=None):
+        """
+        Añade al árbol una conexión de QGIS con sus esquemas y tablas con geometría. Si avisos es una lista,
+        los problemas se anotan ahí (al cargar una configuración) en lugar de mostrarse en una ventana.
+        """
+        avisar = avisos.append if avisos is not None else self.warn
+        clave = f"{provider}:{name}"
+        if any(r.data(0, PATH_ROLE) == clave for r in self._roots(DB_ROOT)):
+            return avisar(f"La conexión «{name}» ya está en el árbol")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Conectar a un servidor puede tardar unos segundos
+        try:
+            tablas = database.tables(provider, name)
+        except database.DatabaseError as e:
+            return avisar(str(e))
+        finally:
+            QApplication.restoreOverrideCursor()
+        titulo, icono = database.PROVIDERS.get(provider, (provider, '/mIconDbSchema.svg'))
+        raiz = QTreeWidgetItem(self.treeWidget, [name])
+        raiz.setToolTip(0, f"Base de datos {titulo} · conexión «{name}» de QGIS")
+        self._setup_db_item(raiz, DB_ROOT, clave, icono)
+        esquemas = {}
+        for t in tablas:
+            padre = raiz
+            if t['esquema']:  #SpatiaLite no tiene esquemas: las tablas van directamente bajo la conexión
+                if t['esquema'] not in esquemas:
+                    esquemas[t['esquema']] = QTreeWidgetItem(raiz, [t['esquema']])
+                    self._setup_db_item(esquemas[t['esquema']], DB_SCHEMA, f"{clave}/{t['esquema']}", '/mIconDbSchema.svg')
+                padre = esquemas[t['esquema']]
+            item = QTreeWidgetItem(padre, [t['tabla']])
+            self._setup_db_item(item, DB_TABLE, t['uri'], ICONS.get(DB_GEOMETRY.get(t['geometria']), ICONS[TABLE]))
+            item.setData(0, DB_ROLE, {'proveedor': provider, 'conexion': name, 'esquema': t['esquema'], 'tabla': t['tabla'],
+                                      'uri': t['uri']})
+            item.setToolTip(0, (f"{t['esquema']}." if t['esquema'] else '') + t['tabla'] + (" (vista)" if t['vista'] else ""))
+        if not tablas:
+            aviso = QTreeWidgetItem(raiz, ["No hay tablas con geometría"])
+            aviso.setDisabled(True)
+        raiz.setExpanded(True)
+        self.apply_filter(self.filterBox.text())
+        self.update_summary()
+        return raiz
+
+    def selected_db_tables(self):
+        """Tablas marcadas de las bases de datos, como diccionarios (proveedor, conexión, esquema, tabla, uri)."""
+        seleccion = []
+
+        def recorrer(item):
+            for i in range(item.childCount()):
+                hijo = item.child(i)
+                if hijo.data(0, KIND_ROLE) == DB_TABLE and hijo.checkState(0) == Qt.CheckState.Checked:
+                    seleccion.append(dict(hijo.data(0, DB_ROLE)))
+                recorrer(hijo)
+
+        for raiz in self._roots(DB_ROOT):
+            recorrer(raiz)
+        return seleccion
+
+    @staticmethod
+    def _db_groups(tabla):
+        """Grupos del proyecto (y subcarpetas) de una tabla: conexión / esquema."""
+        return (tabla['conexion'],) + ((tabla['esquema'],) if tabla['esquema'] else ())
+
+    def build_db_jobs(self, folder_project, gpkg, mode, tablas_usadas, rutas_usadas):
+        """Trabajos (Job) de las tablas marcadas. La descarga se hace luego en segundo plano (ExportTask)."""
+        jobs = []
+        for t in self.selected_db_tables():
+            grupos = self._db_groups(t)
+            nombre = open_project.safe_name(t['tabla'])
+            capa = QgsVectorLayer(t['uri'], t['tabla'], t['proveedor'])  #Al abrirla se carga su estilo guardado en la BD
+            estilo = open_project.save_style(capa) if capa.isValid() else None
+            if mode == SINGLE:
+                jobs.append(Job(t['uri'], gpkg, grupos, tables={nombre: nombre_unico(nombre, tablas_usadas)}, qml=estilo,
+                                provider=t['proveedor'], db_layer=nombre))
+                continue
+            ruta = os.path.join(folder_project, *[open_project.safe_name(g) for g in grupos], nombre + '.gpkg')
+            base, ext = os.path.splitext(output_path(ruta, VECTOR, mode))
+            jobs.append(Job(t['uri'], nombre_unico(base, rutas_usadas) + ext, grupos, qml=estilo, name=t['tabla'],
+                            provider=t['proveedor'], db_layer=nombre))
+        return jobs
 
     # ------------------------------------------------------------------ Capas del proyecto abierto (4.10)
 
@@ -704,9 +843,19 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                         recorrer(item.child(i))
 
         for i in range(self.treeWidget.topLevelItemCount()):
-            if self.treeWidget.topLevelItem(i).data(0, KIND_ROLE) != PROJECT_ROOT:  #El proyecto abierto se guarda aparte
+            if self.treeWidget.topLevelItem(i).data(0, KIND_ROLE) == FOLDER:  #Proyecto abierto y bases de datos: aparte
                 recorrer(self.treeWidget.topLevelItem(i))
         return marcadas
+
+    def _databases_config(self):
+        """Conexiones del árbol y sus tablas marcadas, para guardarlas en una configuración."""
+        marcadas = self.selected_db_tables()
+        lista = []
+        for raiz in self._roots(DB_ROOT):
+            provider, nombre = raiz.data(0, PATH_ROLE).split(':', 1)
+            lista.append({'proveedor': provider, 'conexion': nombre,
+                          'tablas': [[t['esquema'], t['tabla']] for t in marcadas if t['conexion'] == nombre and t['proveedor'] == provider]})
+        return lista
 
     def config_to_dict(self):
         """Todo lo que se guarda de una configuración (menos el nombre y la carpeta del proyecto, que cambian cada vez)."""
@@ -732,6 +881,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 'anadir_capa': self.zoneAddLayer.isChecked(),
             },
             'composiciones': [list(c) for c in self.selected_layouts()],
+            'bases_datos': self._databases_config(),
             'proyecto_abierto': [{'id': capa.id(), 'nombre': capa.name(), 'fuente': capa.source()}
                                  for _, capa in self.selected_project_layers()],
         }
@@ -834,6 +984,19 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             for c in abiertas:
                 if c.get('id') not in encontradas and c.get('fuente') not in encontradas:
                     avisos.append(f"La capa «{c.get('nombre')}» no está en el proyecto abierto en QGIS")
+
+        for bd in datos.get('bases_datos', []):  #Conexiones a bases de datos y sus tablas marcadas
+            raiz = self.add_database(bd.get('proveedor'), bd.get('conexion'), avisos=avisos)
+            if raiz is None:
+                continue
+            marcadas = {tuple(t) for t in bd.get('tablas', [])}
+            encontradas = set()
+            for item in _items_de(raiz):
+                info = item.data(0, DB_ROLE)
+                if item.data(0, KIND_ROLE) == DB_TABLE and (info['esquema'], info['tabla']) in marcadas:
+                    item.setCheckState(0, Qt.CheckState.Checked)
+                    encontradas.add((info['esquema'], info['tabla']))
+            avisos += [f"Ya no existe la tabla {'.'.join(p for p in t if p)} en «{bd.get('conexion')}»" for t in marcadas - encontradas]
 
         composiciones = [tuple(c) for c in datos.get('composiciones', [])]
         for tipo, valor in composiciones:
@@ -969,7 +1132,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def source_folders(self):
         """Rutas de las carpetas de capas añadidas (las raíces del árbol, menos el bloque del proyecto abierto)."""
         raices = (self.treeWidget.topLevelItem(i) for i in range(self.treeWidget.topLevelItemCount()))
-        return [r.data(0, PATH_ROLE) for r in raices if r.data(0, KIND_ROLE) != PROJECT_ROOT]
+        return [r.data(0, PATH_ROLE) for r in raices if r.data(0, KIND_ROLE) == FOLDER]
 
     def add_source_folder(self, folder):
         """Añade una carpeta de capas como nueva raíz del árbol (sin perder lo ya marcado en las demás)."""
@@ -1051,7 +1214,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         for i in range(self.treeWidget.topLevelItemCount()):
             raiz = self.treeWidget.topLevelItem(i)
-            if raiz.data(0, KIND_ROLE) != PROJECT_ROOT:  #Las capas del proyecto abierto van aparte (selected_project_layers)
+            if raiz.data(0, KIND_ROLE) == FOLDER:  #Proyecto abierto y bases de datos van aparte (selected_project_layers...)
                 recorrer(raiz, raiz.data(0, PATH_ROLE))
         return sources
 
@@ -1062,7 +1225,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if os.path.isdir(path):
                 continue
             total += len(layers) if layers is not None else len(self._item_layers(path)) or 1
-        return total + len(self.selected_project_layers())
+        return total + len(self.selected_project_layers()) + len(self.selected_db_tables())
 
     def _item_layers(self, path):
         """Capas internas de un fichero multicapa según el árbol (sin volver a leer el disco)."""
@@ -1388,7 +1551,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return "La ruta del proyecto es un fichero, no una carpeta"
         if self.addWMS.isChecked() and not self.selected_services():
             return "No has marcado ningún servicio web (o desmarca la sección 2)"
-        if not self.selected_sources() and not self.selected_project_layers() and not self.addWMS.isChecked():  #Hace falta al menos una capa o un servicio WMS
+        if not (self.selected_sources() or self.selected_project_layers() or self.selected_db_tables() or self.addWMS.isChecked()):  #Hace falta al menos una capa o un servicio WMS
             return "No se ha marcado ninguna capa ni ningún servicio web"
         # Evitar sobrescribir los datos de origen: el proyecto no puede estar en ninguna carpeta de capas ni dentro de ella
         for _, capa in self.selected_project_layers():  #Tampoco puede sobrescribir los ficheros de las capas del proyecto abierto
@@ -1446,7 +1609,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             base, ext = os.path.splitext(path_target)
             path_target = nombre_unico(base, rutas_usadas) + ext  #p. ej. rios.shp y rios.geojson convertidos ambos a rios.gpkg
             jobs.append(Job(path_source, path_target, group, layers=layers))
-        return jobs + self.build_project_jobs(folder_project, gpkg, mode, tablas_usadas, rutas_usadas)
+        return (jobs + self.build_project_jobs(folder_project, gpkg, mode, tablas_usadas, rutas_usadas)
+                + self.build_db_jobs(folder_project, gpkg, mode, tablas_usadas, rutas_usadas))
 
     def create_project(self, background=True):
         """
