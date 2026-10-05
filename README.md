@@ -21,6 +21,7 @@ ProjectBuilder creates a QGIS project (`.qgz`) in a few clicks:
 - **Self-contained projects**: SVG icons used by the styles are copied into an `iconos/` folder; styles stored inside GeoPackages are kept.
 - **Drag and drop** folders and layer files from the file explorer or the QGIS Browser; hover a layer for its CRS, feature count and size, and double-click it to see it on the map.
 - **Saved configurations** to repeat the same kind of project with one click.
+- Messages and a final report (layers, size, time, problems) inside the panel, without pop-ups.
 - Runs in the background, with progress and cancel. No external dependencies.
 
 The user interface is in Spanish. Install it from *Plugins → Manage and Install Plugins* (search for *ProjectBuilder*) or download the ZIP from [Releases](https://github.com/FGomezLosada/ProjectBuilder/releases) and use *Install from ZIP*.
@@ -61,7 +62,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/Pr
    ![Servicios web](docs/captura_servicios.png)
 3. **Zona de trabajo** (opcional): elige una capa de polígonos (o solo sus elementos seleccionados) o un rectángulo (extensión del mapa, de una capa o dibujado), y un margen en metros. Todo se recorta por esa zona y el proyecto se abre en ella.
 4. **Proyecto**: nombre, carpeta de destino (se crea si no existe; no puede ser ninguna de las de origen ni estar dentro de ellas), SRC y composiciones de impresión. En el cajetín puedes usar `[% @project_title %]`: se rellena con el nombre del proyecto.
-5. Revisa el resumen (o pulsa **Informe de capas…** para ver el detalle de cada capa) y pulsa **Crear proyecto**. Al terminar, el mensaje verde permite abrirlo. **Limpiar** vacía el formulario.
+5. Revisa el resumen (o pulsa **Informe de capas…** para ver el detalle de cada capa) y pulsa **Crear proyecto**. Al terminar, el panel muestra qué se ha creado, cuánto ocupa y cuánto ha tardado, con botones para **abrir el proyecto**, **abrir su carpeta** o ver el **informe** completo. Los avisos salen en esa misma barra, sin ventanas. **Limpiar** vacía el formulario y **?** abre esta guía.
 
 ### Servicios siempre al día
 El plugin comprueba sus servicios una vez por semana (en segundo plano): los que no responden se desactivan temporalmente (⛔), corrige los cambios de dirección más habituales y descarga el catálogo más reciente de este repositorio.

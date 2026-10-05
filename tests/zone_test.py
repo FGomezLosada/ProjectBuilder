@@ -49,7 +49,7 @@ _exito = dock_module.ProjectBuilderDockWidget.show_success
 _revision = dock_module.ProjectBuilderDockWidget.start_health_check
 dock_module.ProjectBuilderDockWidget.start_health_check = lambda self, force=False: None  # sin revisar servicios por internet
 paneles = []  # se cierran al final, después de quitar la capa de prueba
-dock_module.ProjectBuilderDockWidget.show_success = lambda self, ruta, empty=(), report=None: vacias.append(list(empty))
+dock_module.ProjectBuilderDockWidget.show_success = lambda self, ruta, empty=(), *a, **k: vacias.append(list(empty))
 
 
 def _items(item):

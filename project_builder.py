@@ -36,7 +36,7 @@ class ProjectBuilder:
         self.toolbar = self.iface.addToolBar("ProjectBuilder")
         self.toolbar.setObjectName("ProjectBuilder")
 
-        icon = QIcon(os.path.join(PLUGIN_DIR, "icon.png"))
+        icon = QIcon(os.path.join(PLUGIN_DIR, "icon.svg"))  #Vectorial: se ve nítido a cualquier tamaño
         self.action = QAction(icon, self.tr("Project Builder"), self.iface.mainWindow())
         self.action.triggered.connect(self.run)
 
@@ -59,6 +59,7 @@ class ProjectBuilder:
         """Muestra el panel. Se crea una sola vez y se reutiliza."""
         if self.dockwidget is None:
             self.dockwidget = ProjectBuilderDockWidget(self.iface)
+            self.dockwidget.setWindowIcon(QIcon(os.path.join(PLUGIN_DIR, "icon.svg")))
             self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dockwidget)
         self.dockwidget.show()
         self.dockwidget.raise_()

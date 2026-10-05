@@ -19,7 +19,7 @@ import time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRUEBAS = ['smoke_test.py', 'zone_test.py', 'config_test.py', 'layout_test.py', 'open_project_test.py', 'stats_test.py',
-           'db_test.py', 'icons_test.py', 'tree_test.py']
+           'db_test.py', 'icons_test.py', 'tree_test.py', 'messages_test.py']
 ESPERA = 600  #Segundos máximos por prueba
 
 

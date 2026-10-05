@@ -12,6 +12,7 @@ license   : GNU GPL v2 or later
 import datetime
 from functools import partial
 import os
+import time
 import unicodedata
 
 from qgis.core import (
@@ -27,7 +28,7 @@ from qgis.core import (
     QgsRectangle,
     QgsVectorLayer,
 )
-from qgis.gui import QgsExtentWidget
+from qgis.gui import QgsExtentWidget, QgsMessageBar
 from qgis.PyQt import QtWidgets, sip, uic
 from qgis.PyQt.QtCore import QEvent, QMimeData, QSettings, Qt, QTimer, QUrl
 from qgis.PyQt.QtGui import QColor, QDesktopServices, QFont
@@ -126,6 +127,7 @@ SIDECAR_EXTENSIONS = ('.shx', '.dbf', '.prj', '.cpg', '.qix', '.sbn', '.sbx', '.
 LAYER_TREE_MIME = 'application/qgis.layertreemodeldata'  #Capas arrastradas desde el panel Capas de QGIS
 DROP_HINT = ("Arrastra aquí carpetas o ficheros de capas desde el Explorador de Windows o el Navegador de QGIS.\n"
              "Clic derecho en una capa: «Ver en el mapa». Doble clic: lo mismo.")
+HELP_URL = 'https://github.com/FGomezLosada/ProjectBuilder#espa%C3%B1ol'  #Guía de uso (README, en español)
 SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
 
 
@@ -229,6 +231,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setup_layouts()
         self.setup_configs()
         self.setup_tree_extras()
+        self.setup_messages()
+        self.setup_help()
 
         # Resumen en vivo de lo que se va a generar. Se recalcula con un pequeño retardo: al marcar una carpeta
         # Qt avisa una vez por cada elemento que cambia, y así se calcula una sola vez al final.
@@ -341,10 +345,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         nombre = self.nameProject.text().strip() or "proyecto"
         self.show_report_dialog(stats.report_html(f"Informe de capas · {nombre}", datos, filas), filas)
 
-    def show_report_dialog(self, contenido, filas=()):
+    def show_report_dialog(self, contenido, filas=(), titulo="ProjectBuilder · Informe de capas"):
         """Ventana con el informe de capas, con «Guardar…» (PDF, HTML o CSV) y «Copiar» (método aparte para las pruebas)."""
         dialogo = QDialog(self)
-        dialogo.setWindowTitle("ProjectBuilder · Informe de capas")
+        dialogo.setWindowTitle(titulo)
         dialogo.resize(980, 600)
         disposicion = QVBoxLayout(dialogo)
         visor = QTextBrowser(dialogo)
@@ -380,7 +384,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             stats.save_report(ruta, contenido, filas)
         except OSError as e:
             return self.warn(f"No se pudo guardar el informe:\n{e}")
-        self.iface.messageBar().pushMessage("ProjectBuilder", f"Informe guardado: {ruta}", level=Qgis.MessageLevel.Success, duration=8)
+        self.notify(f"Informe guardado: {ruta}", Qgis.MessageLevel.Success, 8)
         return ruta
 
     def copy_layers_report(self, filas):
@@ -389,8 +393,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         datos.setText(stats.rows_text(filas, '\t'))  #Excel: una celda por columna
         datos.setHtml(stats.rows_html(filas))  #Word: tabla con formato
         QApplication.clipboard().setMimeData(datos)
-        self.iface.messageBar().pushMessage("ProjectBuilder", "Tabla de capas copiada al portapapeles",
-                                            level=Qgis.MessageLevel.Info, duration=4)
+        self.notify("Tabla de capas copiada al portapapeles", Qgis.MessageLevel.Info, 4)
 
     # ------------------------------------------------------------------ Bases de datos: PostGIS y SpatiaLite (4.7)
 
@@ -818,8 +821,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         except configs.ConfigError as e:
             return self.warn(str(e))
         self.refresh_configs(select=nombre)
-        self.iface.messageBar().pushMessage("ProjectBuilder", f"Configuración «{nombre}» guardada",
-                                            level=Qgis.MessageLevel.Success, duration=5)
+        self.notify(f"Configuración «{nombre}» guardada", Qgis.MessageLevel.Success, 5)
 
     def delete_current_config(self):
         if not self.configCombo.currentData():
@@ -1119,9 +1121,45 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         geometria, crs = apply_margin(geometria, crs, self.zoneMargin.value(), self.selectProjection.crs())
         return write_zone(geometria, crs), view_extent(geometria, crs, self.selectProjection.crs())
 
+    # ------------------------------------------------------------------ Ayuda (V9)
+
+    def setup_help(self):
+        """Botón «?» junto a las configuraciones: abre la guía de uso (README) en el navegador."""
+        self.helpButton = QToolButton(self.dockWidgetContents)
+        self.helpButton.setIcon(QgsApplication.getThemeIcon('/mActionHelpContents.svg'))
+        self.helpButton.setToolTip("Ayuda: abre la guía de uso de ProjectBuilder en el navegador")
+        self.helpButton.setAutoRaise(True)
+        self.helpButton.clicked.connect(self.open_help)
+        self.configLayout.addWidget(self.helpButton)
+
+    def open_help(self, *args):
+        QDesktopServices.openUrl(QUrl(HELP_URL))
+
+    # ------------------------------------------------------------------ Avisos dentro del panel (V6)
+
+    def setup_messages(self):
+        """Barra de avisos del propio panel, justo encima del resumen y los botones (siempre a la vista)."""
+        self.messageBar = QgsMessageBar(self.dockWidgetContents)
+        self.messageBar.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.mainLayout.insertWidget(self.mainLayout.indexOf(self.summaryLabel), self.messageBar)
+
+    def notify(self, message, level=Qgis.MessageLevel.Info, duration=8):
+        """
+        Muestra un aviso en la barra del panel, sin ventanas que interrumpan. Si el texto tiene varias líneas, se ve la
+        primera y el resto con el botón «Más». duration en segundos (0: se queda hasta cerrarlo con la ×).
+        """
+        if sip.isdeleted(self) or not hasattr(self, 'messageBar'):
+            return None
+        primera, _, resto = message.strip().partition('\n')
+        if resto.strip():
+            self.messageBar.pushMessage('', primera, resto.strip(), level, duration)
+        else:
+            self.messageBar.pushMessage('', primera, level, duration)
+        return None
+
     def warn(self, message):
-        """Muestra un aviso al usuario."""
-        QMessageBox.warning(self, "Error", message)
+        """Aviso al usuario en la barra del panel. Los avisos largos (con detalles) se quedan hasta cerrarlos."""
+        return self.notify(message, Qgis.MessageLevel.Warning, 0 if '\n' in message.strip() else 15)
 
     def reset_form(self):
         """Vacía el formulario: carpetas, capas marcadas, nombre, destino, WMS y formato. Se mantiene el SRC."""
@@ -1516,7 +1554,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return [QgsVectorLayer(datos['uri'], datos['tabla'], datos['proveedor'])]
         return []
 
-    def show_on_map(self, item):
+    def show_on_map(self, item, *args):
         """«Ver en el mapa»: lleva el mapa de QGIS a la capa y hace parpadear su extensión en rojo."""
         lienzo = self.iface.mapCanvas()
         if lienzo is None or item is None:
@@ -1548,10 +1586,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if item is not None and item.childCount() == 0 and item.data(0, KIND_ROLE) in MAP_KINDS:
             self.show_on_map(item)
 
-    def open_in_explorer(self, ruta):
+    def open_in_explorer(self, ruta, *args):
         QDesktopServices.openUrl(QUrl.fromLocalFile(ruta))
 
-    def remove_root_of(self, item):
+    def remove_root_of(self, item, *args):
         self.treeWidget.setCurrentItem(item)
         self.remove_current_folder()
 
@@ -1776,7 +1814,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.favorites = svc.load_favorites(svc.favorites_path())
         except svc.ServicesError as e:
             self.favorites = []
-            self.iface.messageBar().pushMessage("ProjectBuilder", str(e), level=Qgis.MessageLevel.Warning, duration=10)
+            self.notify(str(e), Qgis.MessageLevel.Warning, 10)
 
         favoritos = self._root("★ Favoritos")
         for servicio in self.favorites:
@@ -1808,7 +1846,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 for servicio in servicios:
                     self._add_service_node(grupo, servicio)
         except svc.ServicesError as e:  #Si services.json tiene un error, se avisa y el plugin sigue funcionando sin catálogo
-            self.iface.messageBar().pushMessage("ProjectBuilder", str(e), level=Qgis.MessageLevel.Critical, duration=0)
+            self.notify(str(e), Qgis.MessageLevel.Critical, 0)
 
         favoritos.setExpanded(True)
         conexiones.setExpanded(True)
@@ -1894,10 +1932,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 avisos.append(f"Catálogo de servicios actualizado (versión {svc.catalog_version(destino)})")
         caidos = [f.name for f in self.favorites if not task.resultados.get(f.key(), {}).get('ok', True)]
         if caidos:
-            self.iface.messageBar().pushMessage("ProjectBuilder", "Favoritos que no responden ahora mismo: " + ", ".join(caidos),
-                                                level=Qgis.MessageLevel.Warning, duration=15)
+            self.notify("Favoritos que no responden ahora mismo: " + ", ".join(caidos), Qgis.MessageLevel.Warning, 15)
         if avisos:
-            self.iface.messageBar().pushMessage("ProjectBuilder", " · ".join(avisos), level=Qgis.MessageLevel.Info, duration=10)
+            self.notify(" · ".join(avisos), Qgis.MessageLevel.Info, 10)
         self.load_services_tree()
 
     def _service_leaves(self, parent=None):
@@ -2093,9 +2130,12 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         y, al terminar, se construye y guarda el proyecto en finish_project().
         background=False ejecuta todo seguido (lo usa tests/smoke_test.py).
         """
+        if hasattr(self, 'messageBar'):
+            self.messageBar.clearWidgets()  #Los avisos de antes ya no valen
         error = self.validate()
         if error:
             return self.warn(error)
+        self.started = time.monotonic()
 
         folder_project = self.pathFolderProject.text()
         name = self.nameProject.text().strip()
@@ -2138,8 +2178,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.resetButton.setEnabled(True)
         task, self.task = self.task, None
         if not completed:
-            return self.iface.messageBar().pushMessage("ProjectBuilder", "Creación del proyecto cancelada",
-                                                       level=Qgis.MessageLevel.Warning, duration=5)
+            return self.notify("Creación del proyecto cancelada", Qgis.MessageLevel.Warning, 5)
 
         project = qgis_project.create_project(self.pathFolderProject.text(), self.nameProject.text().strip(),
                                               self.selectProjection.crs())
@@ -2204,18 +2243,103 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         except OSError as e:
             return self.warn(str(e))
 
-        if errors:
-            self.warn("El proyecto se ha creado, pero con estos problemas:\n\n- " + "\n- ".join(errors))
-        self.show_success(path_file, task.empty)
+        resumen = {
+            'capas': len(project.mapLayers()),
+            'composiciones': len(trabajos),
+            'segundos': time.monotonic() - getattr(self, 'started', time.monotonic()),
+            'tamano': info.file_size(self.pathFolderProject.text()),
+        }
+        self.show_success(path_file, task.empty, errors, resumen)
 
-    def show_success(self, path_file, empty=()):
-        """Mensaje de que se ha creado el proyecto, con un botón para abrirlo en QGIS."""
-        bar = self.iface.messageBar()
-        texto = f"Proyecto creado: {path_file}"
+    @staticmethod
+    def _duration(segundos):
+        segundos = int(round(segundos))
+        return f"{segundos} s" if segundos < 60 else f"{segundos // 60} min {segundos % 60} s"
+
+    def show_success(self, path_file, empty=(), errors=(), summary=None):
+        """
+        Informe final (V7) en la barra del panel: qué se ha creado, cuánto ocupa y cuánto ha tardado, con los problemas
+        si los hay, y botones para abrir el proyecto, abrir su carpeta o ver el informe completo.
+        """
+        resumen = dict(summary or {})
+        self.last_result = {'proyecto': path_file, 'vacias': list(empty), 'problemas': list(errors), **resumen}
+        partes = [f"Proyecto «{os.path.splitext(os.path.basename(path_file))[0]}» creado"]
+        if 'capas' in resumen:
+            partes.append(f"{resumen['capas']} capa{'s' if resumen['capas'] != 1 else ''}")
+        if resumen.get('tamano') is not None:
+            partes.append(info.human_size(resumen['tamano']))
+        if resumen.get('segundos') is not None:
+            partes.append(f"en {self._duration(resumen['segundos'])}")
         if empty:  #Capas sin nada dentro de la zona de trabajo: no se han añadido (no es un error)
-            texto += f"  ·  {len(empty)} capa{'s' if len(empty) != 1 else ''} sin datos en la zona: {', '.join(empty)}"
-        message = bar.createMessage("ProjectBuilder", texto)
-        button = QPushButton("Abrir proyecto")
-        button.clicked.connect(lambda: self.iface.addProject(path_file))  #QGIS pregunta antes si hay que guardar el proyecto actual
-        message.layout().addWidget(button)
-        bar.pushWidget(message, Qgis.MessageLevel.Success, 15)
+            partes.append(f"{len(empty)} sin datos en la zona")
+        if errors:
+            partes.append(f"⚠ {len(errors)} problema{'s' if len(errors) != 1 else ''} (ver Informe)")
+        mensaje = self.messageBar.createMessage('', " · ".join(partes))
+        for texto, accion, ayuda in (
+                ("Abrir proyecto", self.open_created_project, "Abrir el proyecto en QGIS (antes pregunta si guardar el actual)"),
+                ("Abrir carpeta", self.open_created_folder, "Abrir la carpeta del proyecto"),
+                ("Informe…", self.show_final_report, "Capas del proyecto con sus elementos, superficie y tamaño, y los problemas")):
+            boton = QPushButton(texto, mensaje)
+            boton.setToolTip(ayuda)
+            boton.clicked.connect(accion)
+            mensaje.layout().addWidget(boton)
+        self.messageBar.pushWidget(mensaje, Qgis.MessageLevel.Warning if errors else Qgis.MessageLevel.Success, 0)
+        # Aviso breve también en la barra de QGIS, por si el panel está plegado o en otra pestaña
+        self.iface.messageBar().pushMessage("ProjectBuilder", partes[0] + " (detalles en el panel)",
+                                            level=Qgis.MessageLevel.Warning if errors else Qgis.MessageLevel.Success, duration=6)
+
+    def open_created_project(self, *args):
+        if getattr(self, 'last_result', None):
+            self.iface.addProject(self.last_result['proyecto'])  #QGIS pregunta antes si hay que guardar el proyecto actual
+
+    def open_created_folder(self, *args):
+        if getattr(self, 'last_result', None):
+            self.open_in_explorer(os.path.dirname(self.last_result['proyecto']))
+
+    def _final_rows(self, project):
+        """Filas del informe final: cada capa del proyecto creado, con su grupo."""
+        filas = []
+        elipsoide = project.ellipsoid() or QgsProject.instance().ellipsoid()
+        for nodo in project.layerTreeRoot().findLayers():
+            capa = nodo.layer()
+            if capa is None:
+                continue
+            grupos, padre = [], nodo.parent()
+            while padre is not None and padre.parent() is not None:  #Hasta la raíz (sin incluirla)
+                grupos.insert(0, padre.name())
+                padre = padre.parent()
+            if open_project.how(capa) == open_project.LINK or capa.providerType() in ('wfs', 'oapif', 'arcgisfeatureserver'):
+                filas.append(stats.service_row(capa.name(), ' / '.join(grupos)))  #Servicio web: no se descarga nada para contarlo
+            else:
+                filas.append(stats.layer_stats(capa, tuple(grupos), None, elipsoide))
+        return filas
+
+    def final_report(self):
+        """Informe final completo en HTML y sus filas (método aparte para las pruebas, sin ventanas)."""
+        datos = getattr(self, 'last_result', None)
+        if not datos:
+            return None, []
+        proyecto = QgsProject()
+        try:
+            proyecto.read(datos['proyecto'])
+            filas = self._final_rows(proyecto)
+        finally:
+            proyecto.clear()  #Se suelta enseguida: así no queda abierto el GeoPackage del proyecto
+        cabecera = [("Proyecto", datos['proyecto']),
+                    ("Fecha", datetime.datetime.now().strftime('%d/%m/%Y %H:%M')),
+                    ("Tiempo", self._duration(datos.get('segundos', 0))),
+                    ("Tamaño de la carpeta", info.human_size(datos.get('tamano') or 0)),
+                    ("Capas en el proyecto", datos.get('capas', len(filas))),
+                    ("Composiciones", datos.get('composiciones', 0)),
+                    ("Problemas", len(datos['problemas']) or "Ninguno")]
+        nombre = os.path.splitext(os.path.basename(datos['proyecto']))[0]
+        return stats.report_html(f"Proyecto creado · {nombre}", cabecera, filas, datos['vacias'], datos['problemas']), filas
+
+    def show_final_report(self, *args):
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Se miden las capas: con capas grandes tarda un poco
+        try:
+            contenido, filas = self.final_report()
+        finally:
+            QApplication.restoreOverrideCursor()
+        if contenido:
+            self.show_report_dialog(contenido, filas, "ProjectBuilder · Proyecto creado")

@@ -42,7 +42,7 @@ avisos = []
 _originales = {n: getattr(Clase, n) for n in ('warn', 'start_health_check', 'show_success', 'load_project_layers')}
 Clase.warn = lambda self, msg: avisos.append(msg)
 Clase.start_health_check = lambda self, force=False: None
-Clase.show_success = lambda self, ruta, empty=(): None
+Clase.show_success = lambda self, ruta, empty=(), errors=(), *a, **k: avisos.extend(errors)  # los problemas van en el informe final
 Clase.load_project_layers = lambda self, *a: None
 
 SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="{r}" fill="#2a2"/></svg>'

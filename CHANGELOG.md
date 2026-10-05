@@ -1,6 +1,9 @@
 # Changelog / Historial de versiones
 
 ## Próxima versión
+- **Avisos dentro del panel**, en una barra encima de los botones, en lugar de ventanas emergentes. Los avisos largos muestran la primera línea y el resto con «Más».
+- **Informe final** al crear el proyecto: capas, tamaño de la carpeta y tiempo, con los problemas si los hay, y botones «Abrir proyecto», «Abrir carpeta» e «Informe…» (cada capa del proyecto con sus elementos, superficie y tamaño; se guarda en PDF, HTML o CSV).
+- **Icono nuevo** (SVG, nítido a cualquier tamaño) y botón de **ayuda** (?) que abre la guía de uso.
 - **Arrastrar al panel** carpetas y ficheros de capas desde el Explorador de Windows o el Navegador de QGIS (también capas sueltas de un GeoPackage y plantillas `.qpt`). Un fichero suelto aparece bajo su carpeta, ya marcado, sin recorrer el resto de la carpeta; un shapefile con todos sus ficheros cuenta como una capa. Se guarda en las configuraciones.
 - Al añadir una carpeta que contiene otra que ya estaba en el árbol, se integra en ella sin perder lo marcado (antes se rechazaba).
 - **Información al pasar el ratón** por una capa: ruta, SRC, geometría y número de elementos (o píxeles y bandas), y tamaño; en carpetas y GeoPackages, cuántas capas tienen.

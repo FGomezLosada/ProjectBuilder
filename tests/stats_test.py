@@ -36,7 +36,7 @@ _originales = {n: getattr(Clase, n) for n in ('warn', 'start_health_check', 'sho
                                                'load_project_layers', 'ask_save_path')}
 Clase.warn = lambda self, msg: avisos.append(msg)
 Clase.start_health_check = lambda self, force=False: None
-Clase.show_success = lambda self, ruta, empty=(): None
+Clase.show_success = lambda self, ruta, empty=(), *a, **k: None
 Clase.show_report_dialog = lambda self, contenido, filas=(): ventanas.append((contenido, filas))
 Clase.load_project_layers = lambda self, *a: None  # sin el bloque del proyecto abierto
 Clase.ask_save_path = lambda self, propuesta: destinos.pop(0) if destinos else ''

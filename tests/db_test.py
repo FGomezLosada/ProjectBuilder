@@ -32,7 +32,7 @@ avisos = []
 _originales = {n: getattr(Clase, n) for n in ('warn', 'start_health_check', 'show_success', 'load_project_layers')}
 Clase.warn = lambda self, msg: avisos.append(msg)
 Clase.start_health_check = lambda self, force=False: None
-Clase.show_success = lambda self, ruta, empty=(): None
+Clase.show_success = lambda self, ruta, empty=(), *a, **k: None
 Clase.load_project_layers = lambda self, *a: None
 WGS84 = QgsCoordinateReferenceSystem('EPSG:4326')
 ZONA = QgsRectangle(-3.91, 36.72, -3.876, 36.79)

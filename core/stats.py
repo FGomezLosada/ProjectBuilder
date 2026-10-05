@@ -121,7 +121,7 @@ def totals(filas):
     }
 
 
-def report_html(titulo, datos, filas, vacias=()):
+def report_html(titulo, datos, filas, vacias=(), problemas=()):
     """
     Informe completo en HTML (sencillo: se ve igual en el navegador y en la ventana de QGIS).
     datos: lista de (etiqueta, valor) para la cabecera. filas: resultado de layer_stats.
@@ -141,6 +141,8 @@ def report_html(titulo, datos, filas, vacias=()):
                f"{'s' if t['servicios'] != 1 else ''} web · <b>{number(t['elementos'], 0)}</b> elementos · "
                f"<b>{number(t['superficie_ha'])}</b> ha de polígonos · <b>{number(t['longitud_km'], 3)}</b> km de líneas")
     sin_datos = (f"<h2>Capas sin datos en la zona de trabajo</h2><p>{e(', '.join(vacias))}</p>" if vacias else '')
+    if problemas:  #Lo que no se pudo hacer al crear el proyecto
+        sin_datos += "<h2>Problemas</h2><ul>" + ''.join(f"<li>{e(p)}</li>" for p in problemas) + "</ul>"
     return f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><title>{e(titulo)}</title>
 <style>

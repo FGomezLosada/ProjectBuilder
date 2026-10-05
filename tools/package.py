@@ -16,7 +16,7 @@ import zipfile
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CARPETA = 'project_builder'  #Nombre de la carpeta del plugin dentro de QGIS
 FICHEROS = ['__init__.py', 'project_builder.py', 'project_builder_dockwidget.py', 'project_builder_dockwidget_base.ui',
-            'metadata.txt', 'icon.png', 'LICENSE', 'README.md', 'services.json']
+            'metadata.txt', 'icon.png', 'icon.svg', 'LICENSE', 'README.md', 'services.json']
 CARPETAS = {'core': ('.py',), 'styles': ('.qml',)}  #Subcarpetas incluidas y extensiones admitidas en ellas
 OBLIGATORIOS = ['name', 'qgisMinimumVersion', 'description', 'about', 'version', 'author', 'email', 'repository']
 LIMITE_MB = 25
