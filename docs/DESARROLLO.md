@@ -96,7 +96,7 @@ PostgreSQL 17 + PostGIS 3.6 portátiles en `%USERPROFILE%\pb_postgis` (sin insta
 - Lección: en la dirección de una tabla NO fijar `type=` ni `srid=` (QGIS los detecta); si se fijan, no encuentra su estilo en `layer_styles`.
 
 ## Datos de prueba
-`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/config_test.py` (configuraciones guardadas, sin internet), `tests/layout_test.py` (composiciones, sin internet), `tests/open_project_test.py` (capas del proyecto abierto, sin internet), `tests/stats_test.py` (informe de capas, sin internet), `tests/db_test.py` (SpatiaLite siempre; PostGIS si la de prueba está encendida), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
+`tests/data/` (ver `LEEME.txt`). Pruebas: `tests/smoke_test.py` (sin internet), `tests/zone_test.py` (zona de trabajo, sin internet), `tests/config_test.py` (configuraciones guardadas, sin internet), `tests/layout_test.py` (composiciones, sin internet), `tests/open_project_test.py` (capas del proyecto abierto, sin internet), `tests/stats_test.py` (informe de capas, sin internet), `tests/db_test.py` (SpatiaLite y GeoPackage siempre; PostGIS si la de prueba está encendida), `tests/icons_test.py` (iconos SVG de los estilos), `tests/background_test.py` (segundo plano + WMS/WMTS/WFS reales) y
 `tests/check_catalog.py` (comprueba que los 71 servicios del catálogo responden y que sus capas existen; ejecutarlo de vez en cuando). También vía MCP de QGIS 3.40.
 Si una prueba larga se lanza por el MCP, conviene hacerlo con `QTimer.singleShot` y guardar la salida en un fichero:
 así la llamada no espera a que termine (el MCP corta a los 60 s).
@@ -145,7 +145,7 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | 4.5 ✅ | Composiciones de impresión: las del proyecto abierto, plantillas `.qpt` de cualquier carpeta y las del perfil de QGIS; mapas centrados en la zona, en el SRC del proyecto; título del proyecto = nombre (`[% @project_title %]`). Sin plantilla propia del plugin | TFM + petición |
 | 4.6 ✅ | Informe de capas: botón «Informe de capas…» que muestra al instante tipo, elementos, superficie/longitud (elipsoide), SRC y tamaño de cada capa (recortada a la zona); se guarda en PDF/HTML/CSV o se copia para Excel/Word | TFM |
 | 4.7 ✅ | Bases de datos como origen: conexiones PostGIS, SpatiaLite y GeoPackage de QGIS (botón «Añadir base de datos»), esquemas y tablas/vistas con geometría; descarga en segundo plano (solo el rectángulo de la zona) y conserva el estilo guardado en la BD | TFM |
-| 4.8 | Estilos `.qml` con símbolos SVG (pendiente de definir) | Word de mejoras |
+| 4.8 ✅ | Iconos de los estilos: los SVG e imágenes que usan los símbolos (marcadores, rellenos, subsímbolos) se copian a `iconos/` del proyecto y el estilo apunta a la copia (proyecto autónomo); no se copian los de serie de QGIS; aviso de iconos que faltan. También se conservan los estilos guardados DENTRO de un GeoPackage de origen. No cubre (por ahora) iconos de etiquetas ni rutas definidas por datos | Word de mejoras |
 | 4.9 ✅ | Configuraciones guardadas: un `.json` por configuración en el perfil (carpetas, capas marcadas, servicios, SRC, formato y zona de trabajo); se elige en un desplegable arriba del panel | Idea aprobada |
 | 4.10 ✅ | Capas del proyecto abierto como origen: mismo árbol de grupos, estilo actual de cada capa; las de fichero/BBDD/temporales se copian (con filtro), los servicios web se enlazan; se actualiza solo | Idea |
 

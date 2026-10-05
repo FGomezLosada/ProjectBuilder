@@ -1,6 +1,8 @@
 # Changelog / Historial de versiones
 
 ## Próxima versión
+- **Iconos de los estilos**: los SVG e imágenes que usan las capas se copian a la carpeta `iconos/` del proyecto, que queda autónomo (se puede mover o enviar y los iconos se siguen viendo). Avisa de los iconos que no se encuentran.
+- Se conservan los **estilos guardados dentro de un GeoPackage de origen** (antes solo se usaba el `.qml` junto al fichero).
 - **Bases de datos PostGIS, SpatiaLite y GeoPackage conectados** como origen: botón «Añadir base de datos» con las conexiones de QGIS; esquemas y tablas (también vistas) en el árbol; se descargan en segundo plano, solo lo que cae en la zona de trabajo, y conservan el estilo guardado en la base de datos.
 - **Informe de capas**: botón que muestra al instante, antes de crear el proyecto, cada capa con su tipo, elementos, superficie o longitud (en metros reales), SRC y tamaño, ya recortada a la zona de trabajo. Se guarda en PDF, HTML o CSV, o se copia para pegar en Excel o Word.
 - Pruebas automáticas aisladas: `tools\\probar.bat` las lanza en QGIS 3.40 y 4, cada una en un QGIS sin ventana.

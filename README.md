@@ -18,6 +18,7 @@ ProjectBuilder creates a QGIS project (`.qgz`) in a few clicks:
 - **Web services** (WMS, WMTS, WFS): your favourites, your QGIS connections and a built-in, automatically checked catalogue of Spanish public services (IGN, Cadastre, IGME, regional SDIs).
 - **Print layouts** from the open project or from `.qpt` templates, with their maps centred on the work area.
 - **Layers report**: before creating the project, see each layer's type, feature count, area or length, CRS and size (clipped to the work area); save it as PDF, HTML or CSV.
+- **Self-contained projects**: SVG icons used by the styles are copied into an `iconos/` folder; styles stored inside GeoPackages are kept.
 - **Saved configurations** to repeat the same kind of project with one click.
 - Runs in the background, with progress and cancel. No external dependencies.
 
@@ -42,6 +43,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/Pr
 - **Servicios web** WMS, WMTS y WFS: tus **favoritos**, tus **conexiones de QGIS** y un **catálogo** de servicios oficiales (IGN, Catastro, IGME, comunidades autónomas) que se revisa solo.
 - **Composiciones de impresión** del proyecto abierto o de plantillas `.qpt`, con los mapas centrados en la zona.
 - **Informe de capas**: antes de crear el proyecto, cada capa con su tipo, elementos, superficie o longitud, SRC y tamaño (ya recortada a la zona). Se guarda en PDF, HTML o CSV, o se copia para Excel o Word.
+- **Iconos SVG de los estilos** copiados a la carpeta `iconos/` del proyecto: se puede mover o enviar la carpeta y los iconos se siguen viendo. Se conservan también los estilos guardados dentro de los GeoPackage.
 - **Configuraciones guardadas** para repetir un tipo de proyecto con un clic.
 - Exportación en segundo plano, con progreso y cancelación. Las capas se añaden ocultas para que el proyecto abra rápido.
 

@@ -49,6 +49,7 @@ from qgis.PyQt.QtWidgets import (
 
 from .core import configs
 from .core import database
+from .core import icons
 from .core import layouts
 from .core import open_project
 from .core import stats
@@ -67,6 +68,7 @@ from .core.clip import (
 from .core.capabilities import detect_type, parse_capabilities
 from .core.health import HealthTask, check_due
 from .core.formats import (
+    CONTAINER_EXTENSIONS,
     CONVERT,
     FOLDER,
     KEEP,
@@ -74,6 +76,7 @@ from .core.formats import (
     RASTER,
     SINGLE,
     VECTOR,
+    extension,
     layer_kind,
     output_path,
     style_path,
@@ -1563,6 +1566,29 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 return f"La carpeta del proyecto no puede ser una carpeta de capas ni estar dentro de ella:\n{carpeta}"
         return None
 
+    @staticmethod
+    def _source_styles(path_source, names=None):
+        """
+        Estilos guardados DENTRO de un GeoPackage (o SpatiaLite) de origen: {capa: .qml temporal}. Al abrir la capa,
+        QGIS carga su estilo por defecto guardado en el fichero; se guarda en un .qml para aplicarlo a la copia.
+        """
+        if extension(path_source) not in CONTAINER_EXTENSIONS:
+            return None
+        estilos = {}
+        for subcapa in vector_sublayers(path_source):
+            if names is not None and subcapa.name() not in names:
+                continue
+            capa = QgsVectorLayer(subcapa.uri(), subcapa.name(), 'ogr')
+            try:
+                cuantos = capa.listStylesInDatabase()[0]
+            except Exception:  # noqa: BLE001
+                cuantos = 0
+            if capa.isValid() and cuantos and cuantos > 0:
+                qml = open_project.save_style(capa)
+                if qml:
+                    estilos[subcapa.name()] = qml
+        return estilos or None
+
     def build_jobs(self, folder_project, name, mode, zone=None):
         """
         Prepara la lista de trabajos (Job) a partir de lo marcado en el árbol.
@@ -1600,7 +1626,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 una_capa = len(capas) == 1 and kind == VECTOR
                 tablas = {capa: nombre_unico(os.path.splitext(os.path.basename(path_source))[0] if una_capa else capa, tablas_usadas)
                           for capa in capas}
-                jobs.append(Job(path_source, gpkg, group, tables=tablas, qml=style_path(path_source) if una_capa else None))
+                jobs.append(Job(path_source, gpkg, group, tables=tablas, qml=style_path(path_source) if una_capa else None,
+                                styles=self._source_styles(path_source, capas)))
                 continue
 
             # Misma estructura de subcarpetas que el origen, dentro de la carpeta del proyecto
@@ -1608,7 +1635,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             path_target = output_path(os.path.join(folder_project, nombres_raiz[raiz], rel), kind, CONVERT if mode == SINGLE else mode)
             base, ext = os.path.splitext(path_target)
             path_target = nombre_unico(base, rutas_usadas) + ext  #p. ej. rios.shp y rios.geojson convertidos ambos a rios.gpkg
-            jobs.append(Job(path_source, path_target, group, layers=layers))
+            estilos = self._source_styles(path_source, layers) if kind != RASTER else None
+            jobs.append(Job(path_source, path_target, group, layers=layers, styles=estilos))
         return (jobs + self.build_project_jobs(folder_project, gpkg, mode, tablas_usadas, rutas_usadas)
                 + self.build_db_jobs(folder_project, gpkg, mode, tablas_usadas, rutas_usadas))
 
@@ -1673,9 +1701,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for output in task.outputs:
             try:
                 if output.tables:  #Tablas del GeoPackage común
-                    capas = qgis_project.add_geopackage_tables(project, output.path, output.tables, output.group, output.qml)
+                    capas = qgis_project.add_geopackage_tables(project, output.path, output.tables, output.group, output.qml,
+                                                               output.styles)
                 else:
-                    capas = qgis_project.add_layer(project, output.path, output.group, output.qml, output.name)
+                    capas = qgis_project.add_layer(project, output.path, output.group, output.qml, output.name, output.styles)
                 anadidas += capas
                 if output.zone:
                     qgis_project.put_on_top(project, capas)  #El contorno de la zona, visible y por encima de todo
@@ -1698,6 +1727,14 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     qgis_project.add_service(project, group, servicio)
                 except ValueError as e:
                     errors.append(str(e))
+
+        # Iconos (SVG e imágenes) de los estilos: se copian a iconos/ para que el proyecto se pueda llevar a otro sitio
+        cambiadas, faltan = icons.localize(project, self.pathFolderProject.text())
+        gpkg_comun = os.path.normcase(os.path.abspath(os.path.join(self.pathFolderProject.text(), self.nameProject.text().strip() + '.gpkg')))
+        for capa in cambiadas:  #El estilo guardado dentro del GeoPackage común también apunta ya a los iconos copiados
+            if os.path.normcase(os.path.abspath(capa.source().split('|')[0])) == gpkg_comun:
+                qgis_project.save_style_in_geopackage(capa)
+        errors += [f"No se encuentra el icono {icono} (capa {capa})" for capa, icono in faltan]
 
         if getattr(self, 'zone_extent', None) is not None:
             qgis_project.set_view_extent(project, self.zone_extent)  #Al abrirlo se ve la zona (y los WFS solo piden esa zona)

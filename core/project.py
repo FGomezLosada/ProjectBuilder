@@ -57,62 +57,78 @@ def group_for(project, path):
     return group
 
 
+def save_style_in_geopackage(layer):
+    """Guarda el estilo actual de la capa dentro de su GeoPackage como estilo por defecto (al abrirlo en otro proyecto, sale así)."""
+    try:
+        guardar = getattr(layer, 'saveStyleToDatabaseV2', None)  #QGIS 3.40+ (la versión antigua está obsoleta)
+        if guardar is not None:
+            guardar("default", "ProjectBuilder", True, "")
+        else:
+            layer.saveStyleToDatabase("default", "ProjectBuilder", True, "")
+    except Exception:  # noqa: BLE001 (si no se puede guardar dentro, el estilo sigue guardado en el proyecto)
+        pass
+
+
 def _apply_style(layer, qml, save_in_geopackage=False):
     """Aplica un .qml; si la capa está en un GeoPackage, guarda además el estilo dentro como estilo por defecto."""
     if not qml or not os.path.isfile(qml):
         return
     layer.loadNamedStyle(qml)
     if save_in_geopackage:
-        try:  # noqa: SIM105 (más legible así)
-            layer.saveStyleToDatabase("default", "ProjectBuilder", True, "")  #Al abrir el GeoPackage en otro proyecto, sale con su estilo
-        except Exception:
-            pass  #Si no se puede guardar dentro, el estilo sigue guardado en el proyecto
+        save_style_in_geopackage(layer)
 
 
-def add_layer(project, path, group_path=(), qml=None, name=None):
+def add_layer(project, path, group_path=(), qml=None, name=None, styles=None):
     """
     Añade al proyecto la capa (o capas, si el fichero tiene varias) del fichero path, dentro del grupo group_path.
     Si el fichero tiene una sola capa y hay un .qml con el mismo nombre, se aplica su estilo
     (o el estilo qml indicado: el que tenía la capa en el proyecto abierto en QGIS). name: nombre de la capa (si tiene una).
+    styles: {capa: .qml} con el estilo de cada capa interna (p. ej. los guardados dentro del GeoPackage de origen).
     Devuelve la lista de capas añadidas.
     """
-    name = os.path.splitext(os.path.basename(path))[0]
+    fichero = os.path.splitext(os.path.basename(path))[0]
     kind = layer_kind(path)
     if kind == RASTER:
-        layers = [QgsRasterLayer(path, name)]
+        layers = [QgsRasterLayer(path, fichero)]
     elif kind in (VECTOR, MULTILAYER):
         sublayers = vector_sublayers(path)
         if len(sublayers) == 1 and extension(path) != '.gpkg':  #Una sola capa: se usa el nombre del fichero (en GeoPackage, el de la tabla)
-            layers = [QgsVectorLayer(sublayers[0].uri(), name, 'ogr')]
+            layers = [QgsVectorLayer(sublayers[0].uri(), fichero, 'ogr')]
         else:
             layers = [QgsVectorLayer(s.uri(), s.name(), 'ogr') for s in sublayers]
         if extension(path) == '.shp':
             layers[0].setProviderEncoding('UTF-8')
     else:
-        raise ValueError(f"Error en la capa {name}: no se reconoce el tipo")
+        raise ValueError(f"Error en la capa {fichero}: no se reconoce el tipo")
 
     group = group_for(project, group_path)
     for layer in layers:
         if not layer.isValid():
             raise ValueError(f"La capa {layer.name()} no es válida")
+        estilo = (styles or {}).get(layer.name())  #Estilo propio de esa capa (guardado en el GeoPackage de origen)
         if len(layers) == 1:  #El .qml es de una capa: solo se aplica si el fichero tiene una
-            _apply_style(layer, qml or style_path(path))
+            _apply_style(layer, qml or (style_path(path) if os.path.isfile(style_path(path)) else estilo))
             if name:
                 layer.setName(name)
+        elif estilo:
+            _apply_style(layer, estilo)
         project.addMapLayer(layer, False)  #Se añade al proyecto pero no aparece en el árbol (lo colocamos nosotros)
         _add_to_tree(group, layer)
     return layers
 
 
-def add_geopackage_tables(project, gpkg, tables, group_path=(), qml=None):
-    """Añade tablas del GeoPackage común del proyecto. qml: estilo de origen (si la capa venía de un fichero de una sola capa)."""
+def add_geopackage_tables(project, gpkg, tables, group_path=(), qml=None, styles=None):
+    """
+    Añade tablas del GeoPackage común del proyecto. qml: estilo de origen (si la capa venía de un fichero de una sola capa);
+    styles: {tabla: .qml} con el estilo propio de cada tabla (p. ej. el guardado en el GeoPackage de origen).
+    """
     group = group_for(project, group_path)
     added = []
     for table in tables:
         layer = QgsVectorLayer(f"{gpkg}|layername={table}", table, 'ogr')
         if not layer.isValid():
             raise ValueError(f"La capa {table} no es válida")
-        _apply_style(layer, qml, save_in_geopackage=True)
+        _apply_style(layer, qml or (styles or {}).get(table), save_in_geopackage=True)
         project.addMapLayer(layer, False)
         _add_to_tree(group, layer)
         added.append(layer)

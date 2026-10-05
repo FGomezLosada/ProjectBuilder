@@ -27,6 +27,7 @@ class Job:
     name: str = None  #Nombre de la capa en el proyecto (las del proyecto abierto conservan el suyo)
     provider: str = None  #Tabla de base de datos ('postgres', 'spatialite'): source es su uri y se descarga antes
     db_layer: str = None  #Nombre de la capa en el GeoPackage temporal de la descarga
+    styles: dict = None  #{capa de origen: .qml} estilos guardados dentro del GeoPackage de origen
 
 
 @dataclass
@@ -39,6 +40,7 @@ class Output:
     qml: str = None
     zone: bool = False
     name: str = None
+    styles: dict = None  #{capa o tabla: .qml}
 
 
 class ExportTask(QgsTask):
@@ -74,13 +76,14 @@ class ExportTask(QgsTask):
                     self.empty += [job.tables[capa] for capa in vacias]
                     tablas = [tabla for capa, tabla in job.tables.items() if capa not in vacias]
                     if tablas:
-                        self.outputs.append(Output(job.target, job.group, tablas, job.qml, job.zone))
+                        estilos = {job.tables[c]: q for c, q in (job.styles or {}).items() if c in job.tables}
+                        self.outputs.append(Output(job.target, job.group, tablas, job.qml, job.zone, styles=estilos))
                 else:
                     vacias = []
                     final = export_layer(job.source, job.target, self.crs, feedback=self.feedback, layers=job.layers,
                                          zone=zone, empty=vacias)
                     self.empty += vacias
-                    self.outputs.append(Output(final, job.group, qml=job.qml, zone=job.zone, name=job.name))  #Ruta final (puede haber cambiado de formato)
+                    self.outputs.append(Output(final, job.group, qml=job.qml, zone=job.zone, name=job.name, styles=job.styles))  #Ruta final (puede haber cambiado de formato)
             except DatabaseError as e:
                 self.errors.append(str(e))
             except EmptyLayer:
