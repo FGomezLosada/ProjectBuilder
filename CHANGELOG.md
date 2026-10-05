@@ -1,7 +1,7 @@
 # Changelog / Historial de versiones
 
 ## Próxima versión
-- **Bases de datos PostGIS y SpatiaLite** como origen: botón «Añadir base de datos» con las conexiones de QGIS; esquemas y tablas (también vistas) en el árbol; se descargan en segundo plano, solo lo que cae en la zona de trabajo, y conservan el estilo guardado en la base de datos.
+- **Bases de datos PostGIS, SpatiaLite y GeoPackage conectados** como origen: botón «Añadir base de datos» con las conexiones de QGIS; esquemas y tablas (también vistas) en el árbol; se descargan en segundo plano, solo lo que cae en la zona de trabajo, y conservan el estilo guardado en la base de datos.
 - **Informe de capas**: botón que muestra al instante, antes de crear el proyecto, cada capa con su tipo, elementos, superficie o longitud (en metros reales), SRC y tamaño, ya recortada a la zona de trabajo. Se guarda en PDF, HTML o CSV, o se copia para pegar en Excel o Word.
 - Pruebas automáticas aisladas: `tools\\probar.bat` las lanza en QGIS 3.40 y 4, cada una en un QGIS sin ventana.
 - **Capas del proyecto abierto** como origen: mismo árbol de grupos y estilo actual de cada capa. Las de fichero, base de datos o temporales se copian (respetando su filtro); los servicios web se añaden tal cual. La lista se actualiza sola.

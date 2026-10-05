@@ -1,5 +1,5 @@
 """
-Bases de datos como origen de capas (mejora 4.7): PostGIS y SpatiaLite.
+Bases de datos como origen de capas (mejora 4.7): PostGIS, SpatiaLite y GeoPackage conectados en QGIS.
 
 Se usan las conexiones que el usuario ya tiene guardadas en QGIS (Administrador de fuentes de datos), con su usuario
 y contraseña. Las tablas marcadas se copian al proyecto como el resto de capas: primero se descargan a un GeoPackage
@@ -22,6 +22,7 @@ from qgis.core import (
 PROVIDERS = {  #Proveedor de QGIS -> (nombre que se muestra, icono)
     'postgres': ('PostGIS', '/mIconPostgis.svg'),
     'spatialite': ('SpatiaLite', '/mIconSpatialite.svg'),
+    'ogr': ('GeoPackage', '/mGeoPackage.svg'),  #Conexiones GeoPackage del Explorador de QGIS
 }
 SYSTEM_TABLES = {'layer_styles', 'spatial_ref_sys', 'geometry_columns', 'geography_columns', 'raster_columns',
                  'raster_overviews', 'topology', 'layer'}  #Tablas internas que no se muestran
@@ -71,6 +72,10 @@ def tables(provider, name):
             continue
         tipos = tabla.geometryColumnTypes()
         wkb = tipos[0].wkbType if tipos else Qgis.WkbType.Unknown
+        if provider == 'ogr':  #GeoPackage: la dirección es el fichero y el nombre de la capa (fichero.gpkg|layername=capa)
+            lista.append({'esquema': '', 'tabla': tabla.tableName(), 'geometria': QgsWkbTypes.geometryType(wkb), 'vista': False,
+                          'uri': conexion.tableUri(tabla.schema(), tabla.tableName())})
+            continue
         uri = QgsDataSourceUri(conexion.uri())
         claves = tabla.primaryKeyColumns()
         if not claves:  #Vistas: no tienen clave primaria; se usa una columna identificadora si la hay

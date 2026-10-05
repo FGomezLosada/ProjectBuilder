@@ -33,7 +33,7 @@ Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/Pr
 ### Qué hace
 - Compatible con **QGIS 3.34+ y QGIS 4.x**, en Windows, Linux y macOS. Sin dependencias externas.
 - **Capas del proyecto abierto en QGIS**, con sus mismos grupos y su estilo actual (los servicios web se añaden tal cual).
-- **Tablas de PostGIS y SpatiaLite** de tus conexiones de QGIS (botón *Añadir base de datos*), por esquemas; se descarga solo lo que cae en la zona de trabajo y se conserva el estilo guardado en la base de datos.
+- **Tablas de PostGIS, SpatiaLite y GeoPackage** de tus conexiones de QGIS (botón *Añadir base de datos*), por esquemas; se descarga solo lo que cae en la zona de trabajo y se conserva el estilo guardado en la base de datos.
 - **Capas locales** de varias carpetas a la vez; cada carpeta se convierte en un grupo del proyecto y se conservan los estilos `.qml`.
   - Vectoriales: Shapefile, GeoPackage, SpatiaLite, GeoJSON, KML, GML, FlatGeobuf, MapInfo, DXF y GPX.
   - Ráster: GeoTIFF, ECW, JPEG2000, ASCII Grid, IMG, VRT, PNG/JPG georreferenciados y MrSID.

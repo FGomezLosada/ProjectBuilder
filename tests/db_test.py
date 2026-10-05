@@ -1,5 +1,5 @@
 """
-Prueba de las bases de datos como origen (mejora 4.7): SpatiaLite siempre y PostGIS si está en marcha la base de
+Prueba de las bases de datos como origen (mejora 4.7): SpatiaLite y GeoPackage siempre, y PostGIS si está en marcha la base de
 datos de prueba (localhost:5433, ver docs/DESARROLLO.md). No necesita internet.
 
 Uso: tools\\probar.bat db_test.py   (o en la consola de Python de QGIS:)
@@ -118,6 +118,23 @@ p1 = QgsProject()
 p1.read(f"{TMP}/spatialite/spatialite.qgz")
 c1 = {lyr.name(): lyr for lyr in p1.mapLayers().values() if lyr.name() != 'zona_trabajo'}
 
+# 1b. GeoPackage conectado en QGIS (como los del Explorador)
+import shutil  # noqa: E402
+gpkg = f"{TMP}/conectado.gpkg"
+shutil.copy2(DATA + "/vectorial/multicapa.gpkg", gpkg)
+md_ogr = QgsProviderRegistry.instance().providerMetadata('ogr')
+md_ogr.saveConnection(md_ogr.createConnection(gpkg, {}), "pb_gpkg_prueba")
+gp = _panel("geopackage")
+raiz_gp = gp.add_database('ogr', "pb_gpkg_prueba")
+tablas_gp = sorted(it.text(0) for it in _items(raiz_gp) if it.data(0, dock_module.KIND_ROLE) == dock_module.DB_TABLE) if raiz_gp else []
+en_menu = any(p == 'ogr' and n == "pb_gpkg_prueba" for p, n in dock_module.database.connections())
+if raiz_gp:
+    raiz_gp.setCheckState(0, Qt.CheckState.Checked)
+gp.create_project(background=False)
+p3 = QgsProject()
+p3.read(f"{TMP}/geopackage/geopackage.qgz")
+c3 = {lyr.name(): lyr for lyr in p3.mapLayers().values() if lyr.name() != 'zona_trabajo'}
+
 # 2. La configuración vuelve a añadir la conexión y a marcar sus tablas
 otro = Clase(qgis.utils.iface)
 paneles.append(otro)
@@ -170,6 +187,10 @@ checks = {
         and all(lyr.isValid() and "spatialite.gpkg" in lyr.source() for lyr in c1.values()),
     "[SpatiaLite] grupo = nombre de la conexión": "pb_sqlite_prueba" in _grupos(p1.layerTreeRoot()),
     "[SpatiaLite] recortadas a la zona": all(_xmax_ok(lyr) for lyr in c1.values()),
+    "[GeoPackage] aparece en el menú de conexiones": en_menu,
+    "[GeoPackage] conexión añadida con sus capas": tablas_gp == ['lineas_25830', 'zonas_4326'],
+    "[GeoPackage] capas copiadas y recortadas": sorted(c3) == ['lineas_25830', 'zonas_4326']
+        and all(lyr.isValid() and _xmax_ok(lyr) for lyr in c3.values()),
     "[configuración] recupera conexión y tablas": recuperadas == ['puntos', 'zonas'],
     "[configuración] avisa de la conexión que no existe": any('no_existe' in a for a in avisos_config),
     "conexión caída: avisa sin colgarse": caida is None and len(aviso_caida) == 1 and 'pb_caida' in aviso_caida[0],
