@@ -57,7 +57,7 @@ Ver [`docs/DESARROLLO.md`](docs/DESARROLLO.md) y el [historial de versiones](CHA
 Errores e ideas: [Issues](https://github.com/FGomezLosada/ProjectBuilder/issues).
 
 ### Autor y licencia
-- **Autor:** Francisco Gómez Losada · pgomezlosada@gmail.com
+- **Autor:** Francisco Gómez Losada · pgomezlosada@gmail.com · [LinkedIn](https://www.linkedin.com/in/fgomezlosada)
 - **Colaborador:** Mikel Febrer (MFGeo), tutor del Trabajo Fin de Máster, que guio y ayudó a desarrollar las primeras versiones del plugin.
 - **Origen:** Trabajo Fin de Máster (2023) de la 1.ª edición del [Máster en Sistemas de Información Geográfica de Código Abierto](https://geoinnova.org/curso/master-sig-codigo-abierto/) de Geoinnova.
 - **Licencia:** [GNU GPL v2 o posterior](LICENSE).
@@ -82,4 +82,4 @@ Layers can come from local or network folders (drag and drop them onto the panel
 
 The user interface is in Spanish. Install it from *Plugins → Manage and Install Plugins* (search for *ProjectBuilder*) or download the ZIP from [Releases](https://github.com/FGomezLosada/ProjectBuilder/releases) and use *Install from ZIP*. Bug reports and ideas are welcome in [Issues](https://github.com/FGomezLosada/ProjectBuilder/issues).
 
-Author: Francisco Gómez Losada. Contributor: Mikel Febrer (MFGeo), master's thesis supervisor, who guided and helped build the first versions. Born as the master's thesis (2023) of the 1st edition of Geoinnova's [Master in Open Source Geographic Information Systems](https://geoinnova.org/curso/master-sig-codigo-abierto/). Licence: [GNU GPL v2 or later](LICENSE).
+Author: Francisco Gómez Losada ([LinkedIn](https://www.linkedin.com/in/fgomezlosada)). Contributor: Mikel Febrer (MFGeo), master's thesis supervisor, who guided and helped build the first versions. Born as the master's thesis (2023) of the 1st edition of Geoinnova's [Master in Open Source Geographic Information Systems](https://geoinnova.org/curso/master-sig-codigo-abierto/). Licence: [GNU GPL v2 or later](LICENSE).
