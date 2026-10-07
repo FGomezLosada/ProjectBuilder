@@ -12,8 +12,9 @@ Guía completa del plugin, función por función. Para una presentación rápida
 7. [Sección 4 · Proyecto](#7-sección-4--proyecto)
 8. [Informe de capas (antes de crear)](#8-informe-de-capas-antes-de-crear)
 9. [Crear el proyecto y el informe final](#9-crear-el-proyecto-y-el-informe-final)
-10. [Qué contiene la carpeta del proyecto](#10-qué-contiene-la-carpeta-del-proyecto)
-11. [Preguntas frecuentes y problemas](#11-preguntas-frecuentes-y-problemas)
+10. [Estilos, simbología e iconos (.qml y .svg)](#10-estilos-simbología-e-iconos-qml-y-svg)
+11. [Qué contiene la carpeta del proyecto](#11-qué-contiene-la-carpeta-del-proyecto)
+12. [Preguntas frecuentes y problemas](#12-preguntas-frecuentes-y-problemas)
 
 ---
 
@@ -143,7 +144,7 @@ El mismo menú permite **abrir la carpeta** de la capa en el Explorador y **quit
 | **Un GeoPackage por capa + GeoTIFF** | Cada capa vectorial en su propio `.gpkg`, con la misma estructura de carpetas que el origen. |
 | **Conservar el formato original** | Cada capa en su formato. Lo que GDAL no puede escribir (ECW, MrSID, DXF, GPX…) se convierte igualmente, y los ficheros con varias capas salen en GeoPackage. |
 
-En todos los casos se conservan los estilos `.qml` que acompañan a las capas y los guardados dentro de los GeoPackage de origen. **Los datos de origen nunca se modifican.**
+En todos los casos se conserva la simbología de las capas: sus estilos `.qml`, los guardados dentro de los GeoPackage o de la base de datos, y los iconos SVG que usan (ver el [apartado 10](#10-estilos-simbología-e-iconos-qml-y-svg)). **Los datos de origen nunca se modifican.**
 
 ---
 
@@ -244,7 +245,54 @@ Si algo no se ha podido hacer (una capa ilegible, un icono que no aparece, un se
 
 ---
 
-## 10. Qué contiene la carpeta del proyecto
+## 10. Estilos, simbología e iconos (.qml y .svg)
+
+El proyecto creado se ve con la **misma simbología** que las capas de origen: colores, clasificaciones, etiquetas, iconos… El plugin la recoge de donde esté y la guarda dentro del propio proyecto.
+
+### 10.1 De dónde toma el estilo cada capa
+
+| Origen de la capa | Estilo que se usa |
+|---|---|
+| **Fichero de una sola capa** (Shapefile, GeoJSON, KML, GeoTIFF…) | El fichero `.qml` que esté a su lado **con el mismo nombre**: `rios.shp` → `rios.qml`. |
+| **Capa dentro de un GeoPackage o SpatiaLite** | El estilo guardado **dentro** del fichero (el que QGIS guarda con *Propiedades → Estilo → Guardar en la base de datos*). Si el GeoPackage tiene varias capas, un `.qml` a su lado no se usa, porque no se sabe a cuál de ellas corresponde. |
+| **Capa del proyecto abierto en QGIS** | Su **estilo actual**, tal como la ves en el mapa en ese momento, aunque no lo hayas guardado. |
+| **Tabla de PostGIS, SpatiaLite o GeoPackage conectado** | El estilo guardado en la base de datos (tabla `layer_styles`) como estilo por defecto. |
+| **Servicio web** | El del propio servicio. |
+| **Zona de trabajo** | Contorno rojo discontinuo, sin relleno. |
+
+Si una capa no tiene ningún estilo, QGIS le asigna uno por defecto, como al abrirla a mano.
+
+> **Consejo:** para que tus capas de carpeta salgan siempre con tu simbología, guárdala una vez en QGIS con *Propiedades de la capa → Estilo → Guardar como archivo de estilo de capa QGIS*, con el mismo nombre que la capa y en la misma carpeta.
+
+### 10.2 Dónde queda guardado el estilo en el proyecto
+- **Un solo GeoPackage (recomendado):** el estilo de cada capa se guarda **dentro del GeoPackage** del proyecto, como estilo por defecto, y además en el `.qgz`. Si alguien abre ese GeoPackage en otro proyecto, las capas salen ya con su simbología.
+- **Un GeoPackage por capa o formato original:** el estilo va en el `.qgz` y, si la capa de origen tenía `.qml`, se copia también a su lado en la carpeta del proyecto.
+
+### 10.3 Iconos SVG e imágenes: la carpeta `iconos\`
+Muchas simbologías usan **iconos**: marcadores SVG (una farola, un árbol, un hidrante…), rellenos con patrón SVG o imágenes PNG/JPG. El estilo solo guarda la **ruta** del icono, no el icono. Si esa ruta es de tu ordenador (`D:\Cartografia\iconos\farola.svg`), en otro ordenador el símbolo saldría como un signo de interrogación.
+
+Por eso, al crear el proyecto, ProjectBuilder:
+1. **Busca** todos los iconos que usan las capas del proyecto, incluidos los de símbolos compuestos y los de reglas o categorías.
+2. **Los copia** a la carpeta `iconos\` del proyecto.
+3. **Cambia la ruta** de cada símbolo para que apunte a la copia, con ruta relativa. También lo hace en el estilo guardado dentro del GeoPackage.
+
+Así el proyecto es **autónomo**: puedes mover la carpeta, enviarla o abrirla en otro ordenador, y los iconos se siguen viendo.
+
+**Detalles:**
+- **Iconos que trae QGIS de serie** (la biblioteca SVG de QGIS): no se copian, porque existen en cualquier instalación de QGIS.
+- **Dos iconos distintos con el mismo nombre:** se guardan los dos, el segundo como `nombre_2.svg`, para que ningún símbolo cambie de aspecto.
+- **Iconos incrustados en el estilo o de internet:** se dejan como están.
+- **Si la ruta guardada ya no existe** (el estilo viene de otro ordenador, por ejemplo), el plugin **busca el icono por su nombre** en estos sitios:
+  - las carpetas de capas añadidas al árbol, con sus subcarpetas, y la carpeta de encima de cada una (donde suelen ir las carpetas de iconos que acompañan a la cartografía);
+  - la carpeta del proyecto abierto en QGIS;
+  - las carpetas SVG configuradas en QGIS (*Configuración → Opciones → Sistema → Rutas SVG*).
+- **Si aun así no aparece,** la capa se añade igual, y el informe final lo indica como problema: *«No se encuentra el icono farola.svg (capa alumbrado)»*. Basta con copiar ese icono junto a las capas de origen y volver a crear el proyecto.
+
+> **Consejo:** si trabajas con una biblioteca de iconos propia (la de tu empresa, la de un cliente…), añade su carpeta en *Configuración → Opciones → Sistema → Rutas SVG* de QGIS. El plugin la tendrá en cuenta al buscar los iconos que falten.
+
+---
+
+## 11. Qué contiene la carpeta del proyecto
 
 Con el formato recomendado (un solo GeoPackage):
 
@@ -253,9 +301,14 @@ Urbanismo\
 ├── Plan_urbanismo.qgz      ← el proyecto (rutas relativas: se puede mover la carpeta entera)
 ├── Plan_urbanismo.gpkg     ← todas las capas vectoriales, sus estilos y la zona de trabajo
 ├── raster\                 ← los ráster en GeoTIFF, con la misma estructura de carpetas que el origen
-│   └── mdt_4326.tif
+│   ├── mdt_4326.tif
+│   └── mdt_4326.qml        ← su estilo, si la capa de origen tenía .qml
 └── iconos\                 ← los iconos SVG o imágenes que usan los estilos (si los hay)
+    ├── farola.svg
+    └── arbol.svg
 ```
+
+Con *Un GeoPackage por capa* o *Conservar el formato original*, cada capa vectorial está en su propio fichero, dentro de una carpeta por cada carpeta de origen, con su `.qml` al lado si lo tenía.
 
 - **Proyecto autónomo:** no depende de las carpetas de origen. Puedes copiar la carpeta a otro ordenador, a un USB o a un compañero, y se verá exactamente igual, con los iconos y los estilos incluidos.
 - **Servicios web:** no se descargan; se añaden como conexión dentro del proyecto.
@@ -263,7 +316,7 @@ Urbanismo\
 
 ---
 
-## 11. Preguntas frecuentes y problemas
+## 12. Preguntas frecuentes y problemas
 
 **El informe dice que una capa «no tiene datos en la zona».**
 No es un error: la capa no tiene ningún elemento dentro de la zona de trabajo (más el margen), así que no se añade. Revisa la zona o amplía el margen.
@@ -275,7 +328,10 @@ El destino está dentro de una de las carpetas de origen, y el plugin lo impide 
 Ya existe un proyecto con ese nombre en esa carpeta y su GeoPackage está abierto, normalmente porque el proyecto está abierto en QGIS. Ciérralo o usa otro nombre.
 
 **Aviso de «No se encuentra el icono…».**
-El estilo de una capa usa un icono SVG que no está en tu ordenador. El plugin lo busca por su nombre en las carpetas de capas, en la del proyecto abierto y en las carpetas SVG de QGIS. Si no lo encuentra, la capa se añade igual, pero ese símbolo no se verá. Copia el icono junto a las capas y vuelve a crear el proyecto.
+El estilo de una capa usa un icono SVG que no está en tu ordenador. El plugin lo busca por su nombre en las carpetas de capas, en la del proyecto abierto y en las carpetas SVG de QGIS. Si no lo encuentra, la capa se añade igual, pero ese símbolo no se verá. Copia el icono junto a las capas y vuelve a crear el proyecto (ver el [apartado 10.3](#103-iconos-svg-e-imágenes-la-carpeta-iconos)).
+
+**Una capa sale con otro estilo o con el de por defecto.**
+Comprueba que su `.qml` se llama exactamente igual que la capa y está en la misma carpeta. En un GeoPackage, el estilo tiene que estar guardado dentro del fichero (ver el [apartado 10.1](#101-de-dónde-toma-el-estilo-cada-capa)). Si la capa viene del proyecto abierto, se usa el estilo que tenga en ese momento.
 
 **Un servicio aparece con ⛔.**
 No respondió en la última comprobación. Se vuelve a probar automáticamente; pulsa **⟳** para comprobarlo ahora.
