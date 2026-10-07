@@ -80,6 +80,23 @@ def file_size(path):
     return total
 
 
+def new_files_size(folder, since):
+    """
+    Lo que ocupan los ficheros de la carpeta (y sus subcarpetas) escritos desde el instante since (time.time()).
+    Así se mide solo el proyecto recién creado, aunque se haya creado en una carpeta con otras cosas (Documentos...).
+    """
+    total = 0
+    for carpeta, _subcarpetas, ficheros in os.walk(folder):
+        for f in ficheros:
+            try:
+                estado = os.stat(os.path.join(carpeta, f))
+            except OSError:
+                continue
+            if estado.st_mtime >= since - 2:  #2 s de margen por la precisión de la hora de algunos discos
+                total += estado.st_size
+    return total
+
+
 def _crs_text(crs):
     if not crs.isValid():
         return "sin SRC definido"

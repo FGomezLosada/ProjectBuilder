@@ -27,11 +27,11 @@ svc_module.health_path = lambda: PERFIL + "/estado_servicios.json"
 DATA = os.path.join(os.path.dirname(dock_module.__file__), 'tests', 'data').replace('\\', '/')
 Clase = dock_module.ProjectBuilderDockWidget
 avisos = []
-_originales = {n: getattr(Clase, n) for n in ('warn', 'start_health_check', 'ask_name', 'confirm')}
+_originales = {n: getattr(Clase, n) for n in ('warn', 'start_health_check', 'ask_name', 'confirm', 'ask_config_file')}
 Clase.warn = lambda self, msg: avisos.append(msg)
 dock_module.ProjectBuilderDockWidget.load_project_layers = lambda self, *a: None  # sin el bloque del proyecto abierto: no depende de lo que tenga abierto el usuario
 Clase.start_health_check = lambda self, force=False: None  # sin revisar servicios por internet
-Clase.ask_name = lambda self, actual: "Prueba Nerja"
+Clase.ask_name = lambda self, actual: "Prueba Urbanismo"
 Clase.confirm = lambda self, pregunta: True
 paneles = []
 
@@ -75,8 +75,8 @@ a.zoneMargin.setValue(250)
 a.zoneAddLayer.setChecked(False)
 a.zoneExtent.setOutputExtentFromUser(QgsRectangle(-3.9, 36.73, -3.86, 36.78), QgsCoordinateReferenceSystem("EPSG:4326"))
 a.save_current_config()
-ruta = configs.config_path("Prueba Nerja")
-guardado = os.path.isfile(ruta) and ruta.endswith('prueba_nerja.json')
+ruta = configs.config_path("Prueba Urbanismo")
+guardado = os.path.isfile(ruta) and ruta.endswith('prueba_urbanismo.json')
 original = a.config_to_dict()
 fuentes_a = a.selected_sources()
 nombres = [n for n, _ in configs.list_configs()]
@@ -85,7 +85,7 @@ en_desplegable = [a.configCombo.itemText(i) for i in range(a.configCombo.count()
 # 2. Panel nuevo: se elige la configuración en el desplegable
 zona.removeSelection()
 b = _panel()
-b.config_chosen(b.configCombo.findText("Prueba Nerja"))
+b.config_chosen(b.configCombo.findText("Prueba Urbanismo"))
 cargada = b.config_to_dict()
 fuentes_b = b.selected_sources()
 seleccion_b = zona.selectedFeatureIds()
@@ -102,7 +102,7 @@ for dw in paneles:
 QgsProject.instance().removeMapLayer(zona.id())  # la capa de la zona ya no está abierta: se debe abrir desde su fichero
 c = _panel()
 avisos.clear()
-c.config_chosen(c.configCombo.findText("Prueba Nerja"))
+c.config_chosen(c.configCombo.findText("Prueba Urbanismo"))
 avisos_c = list(avisos)
 raices_c = [c.servicesTree.topLevelItem(i).text(0) for i in range(c.servicesTree.topLevelItemCount())]
 servicios_c = sorted(s.name for s in c.selected_services())
@@ -111,8 +111,24 @@ reabierta = capa_reabierta is not None and capa_reabierta.source().replace('\\',
 c.reset_form()
 limpio = not c.config_services and c.configCombo.currentIndex() == 0 and not c.groupZone.isChecked()
 
+# 3b. Compartir: exportar a un .json, importarlo (como de un compañero) y arrastrarlo al panel
+COMPARTIR = tempfile.mkdtemp(prefix="pb_compartir_")
+Clase.ask_config_file = lambda self, guardar, propuesta='': os.path.join(COMPARTIR, 'urbanismo_compartida.json')
+c.config_chosen(c.configCombo.findText("Prueba Urbanismo"))
+exportada = c.export_current_config()
+importada = c.import_config_file(ruta=exportada)  #Ya hay una con ese nombre: se guarda como «Prueba Urbanismo (2)»
+elegida_importada = c.configCombo.currentText()
+c.add_dropped([exportada])  #Soltar el .json en el panel también la importa
+nombres_compartir = [n for n, _ in configs.list_configs()]
+with open(exportada, encoding='utf-8') as f:
+    contenido_exportado = json.load(f)
+geojson_no_es_config = not configs.is_config(DATA + '/vectorial/lugares_4326.geojson')
+for sobrante in ("Prueba Urbanismo (2)", "Prueba Urbanismo (3)"):
+    configs.delete_config(sobrante)
+c.refresh_configs()
+
 # 4. Borrar
-c.config_chosen(c.configCombo.findText("Prueba Nerja"))
+c.config_chosen(c.configCombo.findText("Prueba Urbanismo"))
 c.delete_current_config()
 tras_borrar = configs.list_configs()
 
@@ -127,18 +143,22 @@ for dw in paneles:
 
 checks = {
     "se guarda un fichero .json en el perfil": guardado,
-    "aparece en la lista y en el desplegable": nombres == ['Prueba Nerja'] and 'Prueba Nerja' in en_desplegable,
+    "aparece en la lista y en el desplegable": nombres == ['Prueba Urbanismo'] and 'Prueba Urbanismo' in en_desplegable,
     "al cargarla el panel queda igual": cargada == original,
     "mismas capas marcadas": fuentes_b == fuentes_a and len(fuentes_a) >= 4,
     "carpeta entera guardada como carpeta": any(m['ruta'].replace('\\', '/').endswith('/raster') and m['capas'] is None
                                                 for m in original['capas']['marcadas']),
     "recupera la selección de la zona": seleccion_b == [0],
-    "el desplegable se queda en la configuración elegida": elegida == "Prueba Nerja",
+    "el desplegable se queda en la configuración elegida": elegida == "Prueba Urbanismo",
     "servicio no visible se muestra aparte y marcado": "Servicios de la configuración" in raices_c
         and servicios_c == ['Capa extra', 'Mapa base IGN'],
     "abre la capa de la zona desde su fichero si no está abierta": reabierta,
     "avisa de la carpeta que ya no existe": len(avisos_c) == 1 and 'no_existe' in avisos_c[0],
     "Limpiar quita también la configuración": limpio,
+    "exportar e importar (con nombre nuevo si ya existe)": importada == "Prueba Urbanismo (2)" and elegida_importada == importada
+        and contenido_exportado.get('nombre') == "Prueba Urbanismo",
+    "arrastrar un .json de configuración al panel la importa": "Prueba Urbanismo (3)" in nombres_compartir,
+    "un GeoJSON no se confunde con una configuración": geojson_no_es_config,
     "borrar la configuración": tras_borrar == [],
 }
 

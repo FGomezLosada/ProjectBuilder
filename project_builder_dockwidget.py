@@ -127,12 +127,12 @@ SIDECAR_EXTENSIONS = ('.shx', '.dbf', '.prj', '.cpg', '.qix', '.sbn', '.sbx', '.
 LAYER_TREE_MIME = 'application/qgis.layertreemodeldata'  #Capas arrastradas desde el panel Capas de QGIS
 DROP_HINT = ("Arrastra aquí carpetas o ficheros de capas desde el Explorador de Windows o el Navegador de QGIS.\n"
              "Clic derecho en una capa: «Ver en el mapa». Doble clic: lo mismo.")
-HELP_URL = 'https://github.com/FGomezLosada/ProjectBuilder#espa%C3%B1ol'  #Guía de uso (README, en español)
+HELP_URL = 'https://github.com/FGomezLosada/ProjectBuilder/blob/main/docs/MANUAL.md'  #Manual de uso, con capturas
 SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
 
 
 def normalizar(texto):
-    """Texto en minúsculas y sin tildes, para que la búsqueda encuentre 'Nerja' al escribir 'nerja' y 'via' en 'vía'."""
+    """Texto en minúsculas y sin tildes, para que la búsqueda encuentre 'Málaga' al escribir 'malaga' y 'via' en 'vía'."""
     return ''.join(c for c in unicodedata.normalize('NFD', texto.lower()) if unicodedata.category(c) != 'Mn')
 
 
@@ -784,6 +784,16 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.saveConfigButton.clicked.connect(self.save_current_config)
         self.deleteConfigButton.clicked.connect(self.delete_current_config)
         self.configCombo.activated.connect(self.config_chosen)  #activated: solo cuando la elige el usuario
+        self.shareConfigButton.setIcon(QgsApplication.getThemeIcon('/mActionSharing.svg'))
+        self.shareConfigButton.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(self.shareConfigButton)
+        menu.addAction(QgsApplication.getThemeIcon('/mActionFileOpen.svg'), "Importar configuración…", self.import_config_file)
+        menu.addAction(QgsApplication.getThemeIcon('/mActionFileSaveAs.svg'), "Exportar la configuración elegida…",
+                       self.export_current_config)
+        menu.addSeparator()
+        menu.addAction(QgsApplication.getThemeIcon('/mIconFolderOpen.svg'), "Abrir la carpeta de configuraciones",
+                       self.open_configs_folder)
+        self.shareConfigButton.setMenu(menu)
         self.refresh_configs()
 
     def refresh_configs(self, select=None):
@@ -822,6 +832,53 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return self.warn(str(e))
         self.refresh_configs(select=nombre)
         self.notify(f"Configuración «{nombre}» guardada", Qgis.MessageLevel.Success, 5)
+
+    def ask_config_file(self, guardar, propuesta=''):
+        """Pide un fichero .json para importar o exportar (método aparte para poder probarlo sin ventanas)."""
+        filtro = "Configuraciones de ProjectBuilder (*.json)"
+        if guardar:
+            ruta, _ = QFileDialog.getSaveFileName(self, "Exportar configuración", propuesta, filtro)
+            if ruta and not ruta.lower().endswith('.json'):
+                ruta += '.json'
+            return ruta
+        ruta, _ = QFileDialog.getOpenFileName(self, "Importar configuración", self._last_dir('last_config_dir'), filtro)
+        return ruta
+
+    def import_config_file(self, *args, ruta=None):
+        """Añade a mis configuraciones un .json (de un compañero, de otro ordenador...) y lo deja cargado en el panel."""
+        ruta = ruta or self.ask_config_file(False)
+        if not ruta:
+            return None
+        self._remember_dir('last_config_dir', os.path.dirname(ruta))
+        try:
+            nombre = configs.import_config(ruta)
+        except configs.ConfigError as e:
+            return self.warn(str(e))
+        self.refresh_configs(select=nombre)
+        self.config_chosen(self.configCombo.currentIndex())
+        self.notify(f"Configuración «{nombre}» importada", Qgis.MessageLevel.Success, 6)
+        return nombre
+
+    def export_current_config(self, *args):
+        """Guarda una copia de la configuración elegida en el fichero que se indique, para compartirla."""
+        if not self.configCombo.currentData():
+            return self.warn("Elige primero en el desplegable la configuración que quieres exportar (o guarda la actual con 💾)")
+        nombre = self.configCombo.currentText()
+        propuesta = os.path.join(self._last_dir('last_config_dir'), os.path.basename(configs.config_path(nombre)))
+        ruta = self.ask_config_file(True, propuesta)
+        if not ruta:
+            return None
+        self._remember_dir('last_config_dir', os.path.dirname(ruta))
+        try:
+            configs.export_config(nombre, ruta)
+        except configs.ConfigError as e:
+            return self.warn(str(e))
+        self.notify(f"Configuración exportada: {ruta}", Qgis.MessageLevel.Success, 8)
+        return ruta
+
+    def open_configs_folder(self, *args):
+        os.makedirs(configs.configs_dir(), exist_ok=True)
+        self.open_in_explorer(configs.configs_dir())
 
     def delete_current_config(self):
         if not self.configCombo.currentData():
@@ -1125,12 +1182,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
     def setup_help(self):
         """Botón «?» junto a las configuraciones: abre la guía de uso (README) en el navegador."""
-        self.helpButton = QToolButton(self.dockWidgetContents)
-        self.helpButton.setIcon(QgsApplication.getThemeIcon('/mActionHelpContents.svg'))
-        self.helpButton.setToolTip("Ayuda: abre la guía de uso de ProjectBuilder en el navegador")
-        self.helpButton.setAutoRaise(True)
+        self.helpButton.setIcon(QgsApplication.getThemeIcon('/mActionHelpContents.svg'))  #El botón está en el .ui
         self.helpButton.clicked.connect(self.open_help)
-        self.configLayout.addWidget(self.helpButton)
 
     def open_help(self, *args):
         QDesktopServices.openUrl(QUrl(HELP_URL))
@@ -1404,6 +1457,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             minusculas = ruta.lower()
             if minusculas.endswith('.qpt'):
                 self.add_layout_file(ruta)
+                continue
+            if minusculas.endswith('.json') and configs.is_config(ruta):  #Una configuración compartida: se importa
+                self.import_config_file(ruta=ruta)
                 continue
             if minusculas.endswith(('.qgz', '.qgs')):
                 avisos.append(f"{os.path.basename(ruta)} es un proyecto: ábrelo en QGIS y sus capas aparecerán en «Proyecto abierto en QGIS»")
@@ -2136,6 +2192,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if error:
             return self.warn(error)
         self.started = time.monotonic()
+        self.started_clock = time.time()  #Para medir solo los ficheros que escribe este proyecto
 
         folder_project = self.pathFolderProject.text()
         name = self.nameProject.text().strip()
@@ -2247,7 +2304,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             'capas': len(project.mapLayers()),
             'composiciones': len(trabajos),
             'segundos': time.monotonic() - getattr(self, 'started', time.monotonic()),
-            'tamano': info.file_size(self.pathFolderProject.text()),
+            'tamano': info.new_files_size(self.pathFolderProject.text(), getattr(self, 'started_clock', 0)),
         }
         self.show_success(path_file, task.empty, errors, resumen)
 
@@ -2346,7 +2403,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         cabecera = [("Proyecto", datos['proyecto']),
                     ("Fecha", datetime.datetime.now().strftime('%d/%m/%Y %H:%M')),
                     ("Tiempo", self._duration(datos.get('segundos', 0))),
-                    ("Tamaño de la carpeta", info.human_size(datos.get('tamano') or 0)),
+                    ("Tamaño del proyecto", info.human_size(datos.get('tamano') or 0)),
                     ("Capas en el proyecto", datos.get('capas', len(filas))),
                     ("Composiciones", datos.get('composiciones', 0)),
                     ("Problemas", len(datos['problemas']) or "Ninguno")]

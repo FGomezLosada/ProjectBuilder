@@ -1,4 +1,4 @@
-Datos sintéticos de prueba (zona de Nerja) para ProjectBuilder.
+Datos sintéticos de prueba para ProjectBuilder.
 - vectorial/zonas_4326.shp ........... polígonos EPSG:4326 (con tildes/ñ en atributos)
 - vectorial/subcarpeta/puntos_23030.shp puntos EPSG:23030 (ED50) en subcarpeta
 - vectorial/multicapa.gpkg ........... 2 capas: lineas_25830 y zonas_4326

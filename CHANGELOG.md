@@ -1,6 +1,9 @@
 # Changelog / Historial de versiones
 
 ## 1.0.0 (2026-10-05) · primera versión estable
+- **Manual de uso** completo, con capturas de cada función (`docs/MANUAL.md`); el botón **?** del panel lo abre.
+- **Compartir configuraciones**: importar y exportar ficheros `.json` (también arrastrándolos al panel), y abrir la carpeta donde se guardan.
+- Corrige el tamaño del informe final: medía toda la carpeta de destino (p. ej. *Descargas*) en lugar de solo los ficheros del proyecto.
 - **Avisos dentro del panel**, en una barra encima de los botones, en lugar de ventanas emergentes. Los avisos largos muestran la primera línea y el resto con «Más».
 - **Informe final** al crear el proyecto: capas, tamaño de la carpeta y tiempo, con los problemas si los hay, y botones «Abrir proyecto», «Abrir carpeta» e «Informe…» (cada capa del proyecto con sus elementos, superficie y tamaño; se guarda en PDF, HTML o CSV).
 - **Icono nuevo** (SVG, nítido a cualquier tamaño) y botón de **ayuda** (?) que abre la guía de uso.

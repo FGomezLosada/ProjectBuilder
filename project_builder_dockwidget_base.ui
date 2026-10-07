@@ -40,6 +40,17 @@
         <property name="toolTip"><string>Borrar la configuración elegida</string></property>
        </widget>
       </item>
+      <item>
+       <widget class="QToolButton" name="shareConfigButton">
+        <property name="toolTip"><string>Compartir configuraciones: importar un fichero .json de un compañero o exportar la elegida</string></property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="helpButton">
+        <property name="toolTip"><string>Ayuda: abre el manual de ProjectBuilder en el navegador</string></property>
+        <property name="autoRaise"><bool>true</bool></property>
+       </widget>
+      </item>
      </layout>
     </item>
     <item>

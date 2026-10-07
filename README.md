@@ -5,7 +5,7 @@
 
 ![QGIS 3.34+ | 4.x](https://img.shields.io/badge/QGIS-3.34%2B%20%7C%204.x-589632) ![License GPL v2+](https://img.shields.io/badge/license-GPL%20v2%2B-blue)
 
-[Español](#español) · [English](#english)
+[Español](#español) · [English](#english) · 📘 [Manual completo con capturas](docs/MANUAL.md)
 
 ---
 
@@ -41,13 +41,15 @@ Compatible con **QGIS 3.34+ y QGIS 4.x**, en Windows, Linux y macOS. Sin depende
 - O descarga el ZIP de [Releases](https://github.com/FGomezLosada/ProjectBuilder/releases) y usa *Instalar a partir de ZIP*.
 
 ### Uso
-**Configuración** (arriba): elige una configuración guardada para rellenar el panel de una vez, o guarda la actual con 💾. El botón **?** abre esta guía.
+**Configuración** (arriba): elige una configuración guardada para rellenar el panel de una vez, guarda la actual con 💾 o compártela (importar y exportar `.json`). El botón **?** abre el [manual](docs/MANUAL.md).
 
 1. **Capas**: arriba del árbol aparecen las del **proyecto abierto en QGIS**. Pulsa *Añadir carpeta…* (tantas veces como orígenes necesites) o *Añadir base de datos*, o **arrastra carpetas y ficheros** al panel, y marca lo que quieras (☑). Al pasar el ratón por una capa ves su SRC, sus elementos y su tamaño; con **doble clic** (o clic derecho → *Ver en el mapa*) el mapa va a ella. Elige el **formato de salida**.
 2. **Servicios web** (opcional): activa la sección y marca las capas. Despliega un servicio para ver sus capas; **★** guarda una capa en Favoritos y **+** crea una conexión nueva en QGIS.
 3. **Zona de trabajo** (opcional): una capa de polígonos (o solo sus elementos seleccionados) o un rectángulo (extensión del mapa, de una capa o dibujado), y un margen en metros.
 4. **Proyecto**: nombre, carpeta de destino (se crea si no existe), SRC y composiciones de impresión. En el cajetín de la composición puedes usar `[% @project_title %]`: se rellena con el nombre del proyecto.
 5. Revisa el resumen (o pulsa **Informe de capas…**) y pulsa **Crear proyecto**. Al terminar, el panel muestra el resultado con botones para **abrir el proyecto**, **abrir su carpeta** o ver el **informe** completo. **Limpiar** vacía el formulario.
+
+Todos los detalles, función por función y con capturas, en el **[manual de ProjectBuilder](docs/MANUAL.md)**.
 
 ### Servicios siempre al día
 El plugin comprueba sus servicios una vez por semana, en segundo plano: los que no responden se desactivan temporalmente (⛔), corrige los cambios de dirección más habituales y descarga el catálogo más reciente de este repositorio.

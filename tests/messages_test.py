@@ -64,6 +64,10 @@ for it in list(_items(dw.treeWidget.invisibleRootItem())):
     if it.text(0) in ('zonas_4326.shp', 'lugares_4326.geojson'):
         it.setCheckState(0, Qt.CheckState.Checked)
 destino = os.path.join(tempfile.mkdtemp(prefix="pb_msg_"), "proyecto")
+os.makedirs(destino)
+with open(os.path.join(destino, "pelicula_ajena.bin"), 'wb') as f:  #Como en Descargas: un fichero grande que no es del proyecto
+    f.write(b'0' * 5 * 1024 * 1024)
+os.utime(os.path.join(destino, "pelicula_ajena.bin"), (1_600_000_000, 1_600_000_000))  #De hace tiempo
 dw.pathFolderProject.setText(destino)
 dw.nameProject.setText("avisos")
 dw.selectProjection.setCrs(QgsCoordinateReferenceSystem("EPSG:25830"))
@@ -74,13 +78,14 @@ botones = [b.text() for b in item_final.findChildren(QPushButton)] if item_final
 paso3 = (texto_final.startswith("Proyecto «avisos» creado") and "2 capas" in texto_final and " en " in texto_final
          and item_final.level() == Qgis.MessageLevel.Success and botones == ['Abrir proyecto', 'Abrir carpeta', 'Informe…']
          and item_final.duration() == 0)
+paso3b = 0 < dw.last_result['tamano'] < 4 * 1024 * 1024  #Solo lo que ha escrito el proyecto, no los 5 MB que ya había
 # Al crear otro proyecto, los avisos anteriores desaparecen
 avisos_antes = len(barra.items())
 
 # 4. Informe completo
 contenido, filas = dw.final_report()
 paso4 = (contenido is not None and len(filas) == 2 and 'zonas_4326' in contenido and 'Tiempo' in contenido
-         and 'Tamaño de la carpeta' in contenido and 'Problemas' in contenido
+         and 'Tamaño del proyecto' in contenido and 'Problemas' in contenido
          and all(f['tamano'] is None and 'en avisos.gpkg' in f['detalle'] for f in filas))
 item_final.findChildren(QPushButton)[2].click()  #«Informe…»
 paso4b = dialogos == [("ProjectBuilder · Proyecto creado", 2)]
@@ -108,6 +113,7 @@ checks = {
     "los errores salen en la barra del panel, sin ventanas": paso1,
     "aviso largo: primera línea y el resto con «Más», hasta cerrarlo": paso2,
     "informe final con capas, tamaño, tiempo y botones": paso3,
+    "el tamaño cuenta solo los ficheros del proyecto (no lo que ya había en la carpeta)": paso3b,
     "informe completo de las capas creadas": paso4,
     "el botón «Informe…» abre el informe": paso4b,
     "con problemas: aviso naranja y problemas en el informe": paso5,
