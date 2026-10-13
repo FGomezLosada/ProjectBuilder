@@ -48,6 +48,12 @@ class ProjectBuilder:
         self.iface.removePluginMenu(self.tr(MENU_NAME), self.action)
         self.iface.removeToolBarIcon(self.action)
         if self.dockwidget is not None:
+            for tarea in (self.dockwidget.task, self.dockwidget.health_task):  #Las tareas en marcha se cancelan
+                if tarea is not None:
+                    try:
+                        tarea.cancel()
+                    except RuntimeError:  #Ya había terminado
+                        pass
             self.iface.removeDockWidget(self.dockwidget)
             self.dockwidget.deleteLater()
             self.dockwidget = None

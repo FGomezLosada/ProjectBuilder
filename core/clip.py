@@ -20,6 +20,7 @@ from qgis.core import (
     QgsReferencedRectangle,
     QgsVectorFileWriter,
     QgsVectorLayer,
+    QgsWkbTypes,
 )
 
 from .formats import style_path
@@ -49,10 +50,25 @@ def geometry_from_layer(layer, selected_only=False):
     if not geometries:
         raise ZoneError("No hay elementos seleccionados en la capa de la zona" if selected_only
                         else f"La capa {layer.name()} no tiene elementos")
+    if not layer.crs().isValid():
+        raise ZoneError(f"La capa {layer.name()} no tiene SRC: asígnaselo en sus propiedades para usarla como zona")
     geometry = QgsGeometry.unaryUnion(geometries)  #Un municipio con varias partes (islas...) queda como un solo multipolígono
     if geometry.isNull() or geometry.type() != Qgis.GeometryType.Polygon:
         raise ZoneError(f"La capa {layer.name()} no es de polígonos")
-    return geometry.makeValid(), layer.crs()
+    return _polygons_only(geometry.makeValid()), layer.crs()
+
+
+def _polygons_only(geometry):
+    """
+    Al reparar una geometría puede salir una colección (polígonos + alguna línea suelta): se queda solo con los polígonos,
+    que es lo único que sirve como zona.
+    """
+    if QgsWkbTypes.flatType(geometry.wkbType()) in (Qgis.WkbType.Polygon, Qgis.WkbType.MultiPolygon):
+        return geometry
+    partes = [p for p in geometry.asGeometryCollection() if p.type() == Qgis.GeometryType.Polygon and not p.isEmpty()]
+    if not partes:
+        raise ZoneError("La zona de trabajo no tiene ninguna superficie (¿polígonos degenerados?)")
+    return QgsGeometry.collectGeometry(partes)
 
 
 def geometry_from_extent(rectangle, crs):
@@ -91,6 +107,8 @@ def write_zone(geometry, crs, path=None):
     Guarda la zona en un GeoPackage (por defecto, temporal) con su estilo .qml al lado.
     Devuelve la ruta del GeoPackage.
     """
+    if crs is None or not crs.isValid():
+        raise ZoneError("La zona de trabajo no tiene SRC")
     path = path or QgsProcessingUtils.generateTempFilename(ZONE_TABLE + '.gpkg')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     capa = QgsVectorLayer(f"MultiPolygon?crs={crs.authid() or 'wkt:' + crs.toWkt()}", ZONE_TABLE, 'memory')
@@ -98,7 +116,8 @@ def write_zone(geometry, crs, path=None):
     geometry = QgsGeometry(geometry)
     geometry.convertToMultiType()
     elemento.setGeometry(geometry)
-    capa.dataProvider().addFeatures([elemento])
+    if not capa.dataProvider().addFeatures([elemento])[0] or capa.featureCount() == 0:  #Comprobado: si no, la zona saldría vacía
+        raise ZoneError("No se pudo preparar la zona de trabajo (geometría no válida)")
     opciones = QgsVectorFileWriter.SaveVectorOptions()
     opciones.driverName = 'GPKG'
     opciones.layerName = ZONE_TABLE

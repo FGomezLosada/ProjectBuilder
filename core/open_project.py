@@ -29,9 +29,16 @@ COPY, LINK = 'copiar', 'enlazar'
 WEB_VECTOR = {'WFS', 'OAPIF', 'arcgisfeatureserver'}  #Proveedores vectoriales de servicios web
 
 
+WINDOWS_RESERVED = {'CON', 'PRN', 'AUX', 'NUL', *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}
+
+
 def safe_name(text):
-    """Nombre válido para un fichero, una carpeta o una tabla: quita los caracteres que Windows no admite."""
-    return re.sub(r'[\\/:*?"<>|]+', '_', text).strip(' .') or 'capa'
+    """
+    Nombre válido para un fichero, una carpeta o una tabla: quita los caracteres que Windows no admite y evita los nombres
+    reservados (una capa llamada «CON» o «NUL» no puede ser un fichero en Windows).
+    """
+    nombre = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', '_', text).strip(' .') or 'capa'
+    return nombre + '_' if nombre.split('.')[0].upper() in WINDOWS_RESERVED else nombre
 
 
 def tree(project=None):
@@ -90,12 +97,19 @@ def prepare_copy(layer):
     ruta = file_path(layer)
     if isinstance(layer, QgsRasterLayer):
         return ruta, None
-    if layer.providerType() == 'ogr' and ruta and not layer.subsetString():
-        nombre = _decoded(layer).get('layerName')
+    if layer.providerType() == 'ogr' and ruta and not layer.subsetString() and not layer.vectorJoins():
+        datos = _decoded(layer)
+        nombre = datos.get('layerName')
         if not nombre:
             subcapas = vector_sublayers(ruta)
-            nombre = subcapas[0].name() if subcapas else None
+            indice = datos.get('layerId')  #Capas abiertas como fichero|layerid=N en lugar de por su nombre
+            try:
+                indice = int(indice) if indice not in (None, '') else 0
+            except (TypeError, ValueError):
+                indice = 0
+            nombre = subcapas[indice].name() if 0 <= indice < len(subcapas) else (subcapas[0].name() if subcapas else None)
         return ruta, nombre
+    # Las capas con uniones (joins) también se copian así: los campos unidos quedan dentro y la simbología que los usa sigue funcionando
     nombre = safe_name(layer.name())
     temporal = QgsProcessingUtils.generateTempFilename(nombre + '.gpkg')
     os.makedirs(os.path.dirname(temporal), exist_ok=True)

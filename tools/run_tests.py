@@ -19,7 +19,7 @@ import time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRUEBAS = ['smoke_test.py', 'zone_test.py', 'config_test.py', 'layout_test.py', 'open_project_test.py', 'stats_test.py',
-           'db_test.py', 'icons_test.py', 'tree_test.py', 'messages_test.py']
+           'db_test.py', 'icons_test.py', 'tree_test.py', 'messages_test.py', 'robustez_test.py', 'robustez_fondo_test.py']
 ESPERA = 600  #Segundos máximos por prueba
 
 
@@ -83,6 +83,10 @@ def main(pruebas):
             lineas += [f"            {f}" for f in fallos]
             if not resultado:
                 lineas += [f"            | {l}" for l in salida.splitlines()[-25:]]
+            detalle = os.path.join(RAIZ, 'tests', f"detalle_{os.path.splitext(prueba)[0]}_qgis{version}.txt")
+            with open(detalle, 'w', encoding='utf-8') as f:  #Salida completa, para ver el motivo de cada fallo
+                f.write(salida)
+            lineas.append(f"            (detalle completo en tests\\{os.path.basename(detalle)})")
         print("\n".join(lineas[desde:]), flush=True)
     lineas += ["", "RESULTADO GLOBAL: " + ("TODO CORRECTO" if todo_bien else "HAY FALLOS")]
     with open(resultados, 'w', encoding='utf-8') as f:

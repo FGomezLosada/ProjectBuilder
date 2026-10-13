@@ -74,13 +74,20 @@ class HealthTask(QgsTask):
         self.catalogo_remoto = None  #Contenido del services.json de GitHub (bytes), si se ha podido descargar y es válido
 
     def run(self):
-        with concurrent.futures.ThreadPoolExecutor(12) as hilos:  #Varios servidores a la vez
+        hilos = concurrent.futures.ThreadPoolExecutor(12)  #Varios servidores a la vez
+        try:
             futuros = {hilos.submit(check_service, s): k for k, s in self.servicios.items()}
             for i, futuro in enumerate(concurrent.futures.as_completed(futuros), start=1):
                 if self.isCanceled():
-                    return False
-                self.resultados[futuros[futuro]] = futuro.result()
+                    return False  #Al salir no se espera a las comprobaciones pendientes (ver finally)
+                try:
+                    self.resultados[futuros[futuro]] = futuro.result()
+                except Exception as e:  # noqa: BLE001 (un servicio raro no debe parar la revisión de los demás)
+                    self.resultados[futuros[futuro]] = {'ok': True, 'url': self.servicios[futuros[futuro]].url,
+                                                        'detalle': f'no se pudo comprobar: {e}'}
                 self.setProgress(i * 100 / (len(futuros) + 1))
+        finally:
+            hilos.shutdown(wait=not self.isCanceled(), cancel_futures=True)
         try:
             datos = fetch(svc.REMOTE_CATALOG_URL)
             if 'grupos' in json.loads(datos.decode('utf-8')):  #Solo se acepta si tiene la estructura esperada

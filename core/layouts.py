@@ -12,6 +12,7 @@ import os
 from qgis.core import (
     QgsApplication,
     QgsCoordinateTransform,
+    QgsCsException,
     QgsLayoutItemLegend,
     QgsLayoutItemMap,
     QgsPrintLayout,
@@ -88,7 +89,10 @@ def layers_extent(project, layers):
     for capa in layers:
         if not capa.isValid() or capa.extent().isEmpty():
             continue
-        extension = QgsCoordinateTransform(capa.crs(), project.crs(), project).transformBoundingBox(capa.extent())
+        try:
+            extension = QgsCoordinateTransform(capa.crs(), project.crs(), project).transformBoundingBox(capa.extent())
+        except QgsCsException:  #Extensión que no se puede pasar al SRC del proyecto (p. ej. mundial a UTM): se ignora
+            continue
         if total.isNull():
             total = QgsRectangle(extension)
         else:

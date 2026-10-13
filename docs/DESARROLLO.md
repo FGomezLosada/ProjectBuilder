@@ -162,6 +162,16 @@ Comprobación de estilo: `ruff check .` (configuración en `pyproject.toml`).
 | V8 ✅ | Arrastrar carpetas o ficheros desde el Explorador de Windows al árbol | Añadir orígenes más rápido |
 | V9 ✅ | Icono nuevo en SVG y botón de ayuda que abre el README | Imagen más profesional |
 
+## Revisión previa a la publicación (v1.0.0)
+Revisión completa del código (en tres bloques independientes) y de las correcciones, más pruebas de casos límite.
+- `tests/robustez_test.py`: 19 casos límite (geometrías no válidas, rutas raras, capas sin SRC, destino que contiene los datos,
+  errores inesperados, favoritos dañados, contraseñas en configuraciones, WMTS con SRC propio...).
+- `tests/robustez_fondo_test.py`: los casos con exportación en segundo plano, en un QGIS propio. Muchas pruebas seguidas en
+  un mismo proceso acumulan objetos y pueden cerrar QGIS (por eso cada prueba va en su propio proceso).
+- Si una prueba falla, el detalle completo queda en `tests/detalle_<prueba>_qgis<versión>.txt`.
+- Pendiente (limitaciones conocidas, no errores): las imágenes de las plantillas de composición (logos) no se copian al proyecto;
+  las capas de bases de datos del proyecto abierto se preparan antes de lanzar la tarea (con capas muy grandes, QGIS espera).
+
 ## Publicación de una versión
 1. Subir `version=` y añadir la línea del `changelog` en `metadata.txt` (y en `CHANGELOG.md`).
 2. Pasar las pruebas (`tests/*_test.py`) en QGIS 3.40 y QGIS 4.

@@ -11,6 +11,7 @@ Los iconos que trae QGIS de serie no se copian (están en cualquier instalación
 import filecmp
 import os
 import shutil
+import time
 
 from qgis.core import (
     QgsApplication,
@@ -54,6 +55,7 @@ def _builtin_dirs():
 
 
 MAX_FILES = 20000  #Tope de ficheros revisados al buscar iconos por su nombre (por si una carpeta es enorme)
+MAX_SECONDS = 8  #Tope de tiempo de esa búsqueda (unidades de red lentas)
 
 
 class _Finder:
@@ -69,15 +71,17 @@ class _Finder:
 
     def find(self, nombre):
         if self.indice is None:
-            self.indice, revisados = {}, 0
+            self.indice, revisados, limite = {}, 0, time.monotonic() + MAX_SECONDS
             for carpeta in self.carpetas:
-                for actual, subcarpetas, ficheros in os.walk(carpeta):
-                    subcarpetas[:] = [s for s in subcarpetas if not s.startswith('.')]
+                for actual, subcarpetas, ficheros in os.walk(carpeta, onerror=lambda e: None):
+                    subcarpetas[:] = [s for s in subcarpetas if not s.startswith(('.', '$'))]
                     for fichero in ficheros:
                         self.indice.setdefault(fichero.lower(), os.path.join(actual, fichero))
                     revisados += len(ficheros)
-                    if revisados > MAX_FILES:
+                    if revisados > MAX_FILES or time.monotonic() > limite:
                         break
+                if revisados > MAX_FILES or time.monotonic() > limite:
+                    break
         return self.indice.get(nombre.lower())
 
 
@@ -107,8 +111,11 @@ def _unique_target(carpeta, origen, copiados):
     n, nombre = 2, os.path.basename(origen)
     while True:
         destino = os.path.join(carpeta, nombre)
-        if not os.path.exists(destino) or filecmp.cmp(origen, destino, shallow=False):
-            return destino
+        try:
+            if not os.path.exists(destino) or filecmp.cmp(origen, destino, shallow=False):
+                return destino
+        except OSError:
+            pass  #No se puede comparar: se usa otro nombre
         nombre = f"{base}_{n}{ext}"
         n += 1
 
@@ -144,10 +151,14 @@ def localize(project, project_folder, layers=None, search_dirs=None):
                     continue  #Icono de serie de QGIS
                 clave = os.path.normcase(origen)
                 if clave not in copiados:
-                    os.makedirs(carpeta, exist_ok=True)
-                    destino = _unique_target(carpeta, origen, copiados)
-                    if not os.path.exists(destino):
-                        shutil.copy2(origen, destino)
+                    try:
+                        os.makedirs(carpeta, exist_ok=True)
+                        destino = _unique_target(carpeta, origen, copiados)
+                        if not os.path.exists(destino):
+                            shutil.copy2(origen, destino)
+                    except OSError:  #Icono bloqueado, sin permiso, de OneDrive sin descargar...: se avisa y se sigue
+                        faltan.append((capa.name(), os.path.basename(origen)))
+                        continue
                     copiados[clave] = destino
                 if os.path.normcase(os.path.abspath(ruta)) != os.path.normcase(copiados[clave]):
                     escribir(copiados[clave].replace('\\', '/'))

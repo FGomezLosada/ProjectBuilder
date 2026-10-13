@@ -33,6 +33,14 @@ class Entry:
     geometry: str = None  #POINT, LINE, POLYGON o TABLE (solo capas vectoriales)
 
 
+def _is_link(path):
+    """True si la carpeta es un enlace o una unión de Windows (no se recorre)."""
+    try:
+        return os.path.islink(path) or (hasattr(os.path, 'isjunction') and os.path.isjunction(path))
+    except OSError:
+        return True
+
+
 def _geometry(sublayer):
     """Tipo de geometría de una capa interna (QgsProviderSublayerDetails)."""
     tipo = QgsWkbTypes.geometryType(sublayer.wkbType())
@@ -48,11 +56,16 @@ def scan_entry(path):
     name = os.path.basename(os.path.normpath(path)) or path
     ext = extension(path)
     if os.path.isdir(path):  #Se recorre también su contenido (recursivo)
+        if _is_link(path):  #Accesos directos de carpeta (uniones de Windows, enlaces): podrían repetir datos o hacer bucles
+            return None
         return Entry(name, path, FOLDER, scan_folder(path))
     if ext in RASTER_EXTENSIONS:
         return Entry(name, path, RASTER)
     if ext in VECTOR_EXTENSIONS:
-        sublayers = vector_sublayers(path)  #Se consulta una sola vez qué capas tiene el fichero
+        try:
+            sublayers = vector_sublayers(path)  #Se consulta una sola vez qué capas tiene el fichero
+        except Exception:  # noqa: BLE001 (fichero dañado o ilegible: no se muestra)
+            return None
         if not sublayers:
             return None
         if ext in CONTAINER_EXTENSIONS or len(sublayers) > 1:  #Sus capas internas se muestran como hijos (GeoPackage, KML con carpetas...)
@@ -68,7 +81,11 @@ def scan_folder(start_path):
     Solo se incluyen carpetas y ficheros con un formato admitido. Orden alfabético.
     """
     entries = []
-    for name in sorted(os.listdir(start_path), key=str.lower):
+    try:
+        nombres = os.listdir(start_path)
+    except OSError:  #Sin permiso («System Volume Information»...) o unidad de red desconectada: se salta
+        return entries
+    for name in sorted(nombres, key=str.lower):
         entry = scan_entry(os.path.join(start_path, name))
         if entry is not None:
             entries.append(entry)

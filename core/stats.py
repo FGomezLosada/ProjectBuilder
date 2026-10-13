@@ -76,6 +76,9 @@ def layer_stats(layer, group=(), zone=None, ellipsoid=None, with_size=True):
         return fila
     tipo = layer.geometryType()
     fila['tipo'] = GEOMETRY_NAMES.get(tipo, 'Vectorial')
+    medir = layer.crs().isValid()  #Sin SRC no se sabe en qué unidades están las coordenadas: no se mide
+    if not medir:
+        fila['detalle'] = 'sin SRC: no se miden superficies ni longitudes'
     medidor = _measurer(layer.crs(), ellipsoid)
     peticion = QgsFeatureRequest().setNoAttributes()
     recorte = None
@@ -97,14 +100,16 @@ def layer_stats(layer, group=(), zone=None, ellipsoid=None, with_size=True):
             if tipo != Qgis.GeometryType.Point:
                 geometria = geometria.intersection(recorte)  #Igual que al recortar: solo cuenta la parte de dentro
         elementos += 1
+        if not medir:
+            continue
         if tipo == Qgis.GeometryType.Polygon:
             superficie += medidor.measureArea(geometria)
         elif tipo == Qgis.GeometryType.Line:
             longitud += medidor.measureLength(geometria)
     fila['elementos'] = elementos
-    if tipo == Qgis.GeometryType.Polygon:
+    if medir and tipo == Qgis.GeometryType.Polygon and superficie == superficie:  #(x == x es False si es «nan»)
         fila['superficie_ha'] = superficie / 10000
-    elif tipo == Qgis.GeometryType.Line:
+    elif medir and tipo == Qgis.GeometryType.Line and longitud == longitud:
         fila['longitud_km'] = longitud / 1000
     return fila
 

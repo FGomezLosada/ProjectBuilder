@@ -83,7 +83,8 @@ def tables(provider, name):
                 nombres = [c.name() for c in conexion.fields(tabla.schema(), tabla.tableName())]
             except Exception:  # noqa: BLE001
                 nombres = []
-            claves = [c for c in ('gid', 'id', 'fid', 'ogc_fid', 'objectid') if c in nombres][:1]
+            por_minusculas = {n.lower(): n for n in nombres}  #«ID», «OBJECTID»... también valen
+            claves = [por_minusculas[c] for c in ('gid', 'id', 'fid', 'ogc_fid', 'objectid') if c in por_minusculas][:1]
         uri.setDataSource(tabla.schema(), tabla.tableName(), tabla.geometryColumn(), '', claves[0] if claves else '')
         # No se fijan el tipo de geometría ni el SRID en la dirección: QGIS los detecta solo y, si se fijan,
         # no encuentra el estilo de la capa guardado en la base de datos (tabla layer_styles)

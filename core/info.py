@@ -119,11 +119,19 @@ def too_slow(path):
         return False
 
 
-def layer_lines(capa):
-    """Líneas de información de una capa ya abierta: SRC, geometría y elementos, o tamaño en píxeles."""
+LOCAL_PROVIDERS = ('ogr', 'gdal', 'memory', 'spatialite', 'delimitedtext', 'virtual')  #Contarlas no pide nada por la red
+
+
+def layer_lines(capa, only_crs=False):
+    """
+    Líneas de información de una capa ya abierta: SRC, geometría y elementos, o tamaño en píxeles.
+    Con only_crs (o si la capa es de un servidor: WFS, PostGIS...), solo el SRC: contar elementos podría tardar mucho.
+    """
     if capa is None or not capa.isValid():
         return ["No se puede abrir la capa"]
     lineas = [f"SRC: {_crs_text(capa.crs())}"]
+    if only_crs or capa.providerType() not in LOCAL_PROVIDERS:
+        return lineas
     if isinstance(capa, QgsVectorLayer):
         geometria = QgsWkbTypes.displayString(capa.wkbType()) or "sin geometría"
         n = capa.featureCount()

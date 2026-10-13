@@ -5,6 +5,7 @@ Recibe el XML que devuelve el servidor y devuelve la lista de capas que ofrece, 
 para cargarlas en QGIS. Al ser Python puro se puede probar sin QGIS.
 """
 
+import re
 from xml.etree import ElementTree as ET
 
 
@@ -79,19 +80,42 @@ def _parse_wms(root):
     return capas
 
 
+def normalize_crs(texto):
+    """
+    SRC de un GetCapabilities en la forma que entiende QGIS: 'urn:ogc:def:crs:EPSG::25830',
+    'http://www.opengis.net/def/crs/EPSG/0/25830' o 'EPSG:25830' -> 'EPSG:25830'; CRS84 -> 'EPSG:4326'.
+    """
+    texto = (texto or '').strip()
+    if 'CRS84' in texto.upper():
+        return 'EPSG:4326'
+    if 'EPSG' in texto.upper():
+        numeros = re.findall(r'\d+', texto.upper().split('EPSG', 1)[1])
+        if numeros:
+            return f"EPSG:{numeros[-1]}"
+    return texto
+
+
 def _parse_wmts(root):
     capas = []
     for contents in root.iter():
         if _tag(contents) != 'Contents':
             continue
+        # SRC de cada conjunto de teselas: su nombre no tiene por qué ser un SRC («UTM30N», «default028mm»...)
+        src_matrices = {}
+        for tms in _children(contents, 'TileMatrixSet'):
+            identificador, soportado = _child_text(tms, 'Identifier'), _child_text(tms, 'SupportedCRS')
+            if identificador and soportado:
+                src_matrices[identificador] = normalize_crs(soportado)
         for layer in _children(contents, 'Layer'):
             formatos = [c.text for c in layer if _tag(c) == 'Format' and c.text]
             estilos = [_child_text(s, 'Identifier') for s in _children(layer, 'Style')]
             matrices = [_child_text(link, 'TileMatrixSet') for link in _children(layer, 'TileMatrixSetLink')]
+            elegida = next((m for m in matrices if 'Google' in m or '3857' in m), matrices[0] if matrices else '')
             capas.append({'layer': _child_text(layer, 'Identifier'), 'title': _child_text(layer, 'Title') or _child_text(layer, 'Identifier'),
-                          'crs': [], 'format': 'image/png' if 'image/png' in formatos else (formatos[0] if formatos else 'image/png'),
+                          'crs': [src_matrices[elegida]] if elegida in src_matrices else [],
+                          'format': 'image/png' if 'image/png' in formatos else (formatos[0] if formatos else 'image/png'),
                           'style': estilos[0] if estilos else 'default',
-                          'tilematrixset': next((m for m in matrices if 'Google' in m or '3857' in m), matrices[0] if matrices else '')})
+                          'tilematrixset': elegida})
         break
     return capas
 

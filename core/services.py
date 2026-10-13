@@ -65,7 +65,12 @@ class Service:
             return (f"pagingEnabled='true' restrictToRequestBBOX='1' srsname='{self.choose_crs(project_crs)}' "
                     f"typename='{self.layer}' url='{self.url}' version='auto'{auth_wfs}")  #restrictToRequestBBOX: pide solo lo visible
         if self.type == WMTS:
-            crs = self.crs or ('EPSG:3857' if 'google' in self.tilematrixset.lower() or '3857' in self.tilematrixset else self.tilematrixset)
+            if self.crs:
+                crs = self.crs
+            elif 'google' in self.tilematrixset.lower() or '3857' in self.tilematrixset:
+                crs = 'EPSG:3857'
+            else:  #El SRC que declara el servicio para ese conjunto de teselas (su nombre puede no ser un SRC)
+                crs = self.crs_list[0] if self.crs_list else self.tilematrixset
             params = [('contextualWMSLegend', '0'), ('crs', crs), ('dpiMode', '7'), ('format', self.format),
                       ('layers', self.layer), ('styles', self.style or 'default'), ('tileMatrixSet', self.tilematrixset),
                       ('url', capabilities_url(self.url, WMTS))]  #En WMTS, QGIS espera la URL completa de GetCapabilities
@@ -120,13 +125,17 @@ def load_catalog(path=SERVICES_FILE):
     grupos = data.get('grupos')
     if grupos is None:
         grupos = [{'nombre': 'Servicios', 'servicios': data.get('wms', [])}]
+    if not isinstance(grupos, list):
+        raise ServicesError("Error en services.json: «grupos» debe ser una lista")
     resultado = []
     for g, grupo in enumerate(grupos, start=1):
+        if not isinstance(grupo, dict):
+            raise ServicesError(f"Error en services.json, grupo {g}: formato no válido")
         servicios = []
         for i, item in enumerate(grupo.get('servicios', []), start=1):
             try:
                 servicios.append(Service.from_dict(item))
-            except TypeError as e:
+            except (TypeError, AttributeError) as e:
                 raise ServicesError(f"Error en services.json, grupo {g}, servicio {i}: faltan datos "
                                     f"(se necesitan al menos name y url)") from e
         resultado.append((grupo.get('nombre', f'Grupo {g}'), servicios))
@@ -221,7 +230,11 @@ def load_favorites(path=None):
     path = path or favorites_path()
     if not os.path.isfile(path):
         return []
-    return [Service.from_dict(d) for d in _read_json(path, "favoritos.json").get('favoritos', [])]
+    lista = _read_json(path, "favoritos.json").get('favoritos', [])
+    try:
+        return [Service.from_dict(d) for d in lista]
+    except (TypeError, AttributeError) as e:
+        raise ServicesError("El fichero de favoritos tiene un formato no válido") from e
 
 
 def save_favorites(favorites, path=None):
@@ -257,8 +270,13 @@ def qgis_connections():
 def _read_json(path, nombre):
     try:
         with open(path, encoding='utf-8') as f:
-            return json.load(f)
+            datos = json.load(f)
     except FileNotFoundError as e:
         raise ServicesError(f"No se encuentra el fichero {nombre}: {path}") from e
     except json.JSONDecodeError as e:
         raise ServicesError(f"Error en {nombre}, línea {e.lineno}, columna {e.colno}: {e.msg}") from e
+    except (ValueError, OSError) as e:  #Codificación que no es UTF-8, fichero bloqueado...
+        raise ServicesError(f"No se puede leer {nombre}: {e}") from e
+    if not isinstance(datos, dict):
+        raise ServicesError(f"El fichero {nombre} no tiene el formato esperado")
+    return datos

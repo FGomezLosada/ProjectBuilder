@@ -72,7 +72,7 @@ class ExportTask(QgsTask):
                     job.source = self._download(job, zone)
                 if job.tables is not None:  #Modo "un solo GeoPackage"
                     vacias = export_to_shared_geopackage(job.source, job.target, job.tables, self.crs,
-                                                         feedback=self.feedback, zone=zone)
+                                                         feedback=self.feedback, zone=zone, notes=self.errors)
                     self.empty += [job.tables[capa] for capa in vacias]
                     tablas = [tabla for capa, tabla in job.tables.items() if capa not in vacias]
                     if tablas:
@@ -81,7 +81,7 @@ class ExportTask(QgsTask):
                 else:
                     vacias = []
                     final = export_layer(job.source, job.target, self.crs, feedback=self.feedback, layers=job.layers,
-                                         zone=zone, empty=vacias)
+                                         zone=zone, empty=vacias, notes=self.errors)
                     self.empty += vacias
                     self.outputs.append(Output(final, job.group, qml=job.qml, zone=job.zone, name=job.name, styles=job.styles))  #Ruta final (puede haber cambiado de formato)
             except DatabaseError as e:
@@ -90,8 +90,13 @@ class ExportTask(QgsTask):
                 self.empty.append(os.path.splitext(os.path.basename(job.source))[0])  #No es un error: se avisa al final
             except ExportError as e:
                 self.errors.append(str(e))  #Si una capa falla se anota y se sigue con las demás
+            except Exception as e:  # noqa: BLE001 (cualquier imprevisto en una capa no debe perder las demás)
+                if self.isCanceled():
+                    return False
+                nombre = job.name or os.path.basename(str(job.source).split('|')[0])
+                self.errors.append(f"No se pudo exportar {nombre}: {e}")
             self.setProgress((i + 1) * 100 / total)
-        return True
+        return not self.isCanceled()  #Si se canceló durante la última capa, también cuenta como cancelado
 
     @staticmethod
     def _download(job, zone):

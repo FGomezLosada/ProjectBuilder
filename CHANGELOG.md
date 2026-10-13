@@ -1,6 +1,21 @@
 # Changelog / Historial de versiones
 
 ## 1.0.0 (2026-10-05) · primera versión estable
+- **Revisión de robustez antes de publicar** (19 casos límite nuevos en `tests/robustez_test.py` y `robustez_fondo_test.py`):
+  - Nunca se sobrescriben los datos de origen: se rechaza una carpeta de destino que contiene carpetas de capas, y la exportación se niega a escribir sobre su propio fichero de origen.
+  - Las capas con geometrías no válidas se reparan al recortarlas por la zona (antes fallaban), y la zona de trabajo admite polígonos con autointersecciones.
+  - Las capas sin SRC (p. ej. un shapefile sin `.prj`) se copian sin reproyectar ni recortar, con aviso.
+  - Rutas con apóstrofos, tildes, espacios o de red (`\\servidor\...`) en el GeoPackage común.
+  - Rásteres del proyecto abierto con extensiones poco comunes; se comprueba que GDAL ha escrito de verdad cada fichero.
+  - Un error imprevisto en una capa ya no aborta todo el proyecto (se anota y se sigue), y cancelar durante la última capa cancela de verdad.
+  - Lo que hay en el panel al pulsar *Crear* es lo que se crea: el formulario queda bloqueado mientras se exporta. El GeoPackage de un proyecto anterior solo se sustituye cuando todo está comprobado.
+  - Se avisa de nombres de proyecto no válidos o carpetas incompletas; los nombres reservados de Windows (CON, NUL…) no se usan como fichero.
+  - Carpetas sin permiso, accesos directos y ficheros dañados se saltan al recorrer las carpetas.
+  - Las configuraciones exportadas no incluyen usuarios ni contraseñas de bases de datos o servicios.
+  - Un `favoritos.json` dañado ya no impide abrir el panel (se aparta como copia). Iconos bloqueados o en OneDrive no impiden guardar el proyecto.
+  - WMTS con conjuntos de teselas de nombre propio («UTM30N») usan el SRC que declara el servicio.
+  - Al recargar o desinstalar el plugin se cancelan las tareas en marcha; la revisión semanal de servicios se puede cancelar al momento.
+  - `tools\\run_tests.py` guarda el detalle completo de cada prueba que falla en `tests\\detalle_<prueba>_qgis<versión>.txt`.
 - **Manual de uso** completo, con capturas de cada función (`docs/MANUAL.md`); el botón **?** del panel lo abre.
 - **Compartir configuraciones**: importar y exportar ficheros `.json` (también arrastrándolos al panel), y abrir la carpeta donde se guardan.
 - Corrige el tamaño del informe final: medía toda la carpeta de destino (p. ej. *Descargas*) en lugar de solo los ficheros del proyecto.

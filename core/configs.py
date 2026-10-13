@@ -11,6 +11,8 @@ import os
 import re
 import unicodedata
 
+from qgis.core import QgsDataSourceUri
+
 from . import services as svc
 
 CONFIG_VERSION = 1  #Si algún día cambia el formato, permite leer las configuraciones antiguas
@@ -32,7 +34,40 @@ def _slug(name):
 
 
 def config_path(name):
-    return os.path.join(configs_dir(), _slug(name) + '.json')
+    """
+    Fichero de la configuración con ese nombre. Si es nueva y su nombre «se parece» al de otra (Málaga y Malaga, o nombres
+    sin letras latinas), se le da un fichero propio (_2, _3...) para no sobrescribir la otra.
+    """
+    carpeta = configs_dir()
+    base = _slug(name)
+    n, fichero = 2, base
+    while True:
+        ruta = os.path.join(carpeta, fichero + '.json')
+        if not os.path.isfile(ruta):
+            return ruta
+        try:
+            guardado = load_config(ruta).get('nombre') or ''
+            if guardado == name or (not guardado and fichero == _slug(name)):  #Copiada a mano, sin «nombre»: vale el del fichero
+                return ruta
+        except ConfigError:
+            return ruta  #Fichero estropeado con ese nombre: se puede sustituir
+        fichero, n = f"{base}_{n}", n + 1
+
+
+def strip_credentials(source):
+    """
+    Fuente de una capa sin usuario ni contraseña (p. ej. de una capa PostGIS guardada con contraseña): así una configuración
+    se puede compartir sin revelarlas. Las fuentes que no son de base de datos se devuelven igual.
+    """
+    if not source or not re.search(r'(^|[\s&])(password|user|username)=', source):  #Sin credenciales (p. ej. un fichero)
+        return source
+    if '&' in source and '=' in source.split('&', 1)[0]:  #Servicios web (WMS, WMTS...): parámetros separados por &
+        partes = [p for p in source.split('&') if p.split('=', 1)[0].lower() not in ('password', 'username', 'user')]
+        return '&'.join(partes)
+    uri = QgsDataSourceUri(source)
+    uri.setPassword('')
+    uri.setUsername('')
+    return uri.uri(False)
 
 
 def list_configs():

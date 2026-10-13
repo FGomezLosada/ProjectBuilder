@@ -324,6 +324,15 @@ No es un error: la capa no tiene ningún elemento dentro de la zona de trabajo (
 **«La carpeta del proyecto no puede ser una carpeta de capas ni estar dentro de ella».**
 El destino está dentro de una de las carpetas de origen, y el plugin lo impide para no sobrescribir tus datos. Elige otra carpeta de destino.
 
+**«La carpeta del proyecto contiene una carpeta de capas».**
+Has elegido como destino una carpeta que contiene alguna de las carpetas de origen (por ejemplo, destino `C:\Datos` con capas en `C:\Datos\Cartografía`). El plugin lo impide para no escribir encima de tus datos. Usa una carpeta vacía y propia para el proyecto.
+
+**Aviso «La capa … no tiene SRC: se ha copiado sin reproyectar ni recortar».**
+Esa capa no tiene sistema de referencia (típico de un shapefile sin su `.prj`), así que no se puede saber dónde está. Se copia tal cual, para no colocarla mal. Asígnale el SRC en QGIS (*Propiedades → Fuente*) o recupera su `.prj`, y vuelve a crear el proyecto.
+
+**Aviso «La capa … tenía geometrías no válidas: se han reparado al recortarla».**
+Algunos polígonos de esa capa se cruzan consigo mismos u otros defectos habituales en cartografía antigua. Al recortarlos por la zona, el plugin los repara automáticamente para no perder la capa. Los datos de origen no se tocan.
+
 **«No se puede sobrescribir <nombre>.gpkg».**
 Ya existe un proyecto con ese nombre en esa carpeta y su GeoPackage está abierto, normalmente porque el proyecto está abierto en QGIS. Ciérralo o usa otro nombre.
 
