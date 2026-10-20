@@ -9,7 +9,8 @@ from qgis.core import QgsProcessingUtils, QgsVectorLayer
 
 from .clip import zone_uri
 from .database import DatabaseError, download
-from .exporter import EmptyLayer, ExportError, export_layer, export_to_shared_geopackage
+from .exporter import REVISAR_CAPA, EmptyLayer, ExportError, export_layer, export_to_shared_geopackage
+from .mensajes import explicar
 
 
 @dataclass
@@ -77,7 +78,8 @@ class ExportTask(QgsTask):
                     tablas = [tabla for capa, tabla in job.tables.items() if capa not in vacias]
                     if tablas:
                         estilos = {job.tables[c]: q for c, q in (job.styles or {}).items() if c in job.tables}
-                        self.outputs.append(Output(job.target, job.group, tablas, job.qml, job.zone, styles=estilos))
+                        self.outputs.append(Output(job.target, job.group, tablas, job.qml, job.zone, name=job.name,
+                                                   styles=estilos))
                 else:
                     vacias = []
                     final = export_layer(job.source, job.target, self.crs, feedback=self.feedback, layers=job.layers,
@@ -94,7 +96,7 @@ class ExportTask(QgsTask):
                 if self.isCanceled():
                     return False
                 nombre = job.name or os.path.basename(str(job.source).split('|')[0])
-                self.errors.append(f"No se pudo exportar {nombre}: {e}")
+                self.errors.append(f"No se pudo exportar {nombre}: {explicar(e, REVISAR_CAPA)}")
             self.setProgress((i + 1) * 100 / total)
         return not self.isCanceled()  #Si se canceló durante la última capa, también cuenta como cancelado
 

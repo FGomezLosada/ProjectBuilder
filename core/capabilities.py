@@ -9,6 +9,9 @@ import re
 from xml.etree import ElementTree as ET
 
 
+CAPABILITIES = ('WMS_Capabilities', 'WMT_MS_Capabilities', 'Capabilities', 'WFS_Capabilities')  #Respuestas válidas
+
+
 def _tag(el):
     return el.tag.split('}')[-1]  #Nombre de la etiqueta sin el espacio de nombres (wms:Layer -> Layer)
 
@@ -48,9 +51,14 @@ def parse_capabilities(data, service_type):
     try:
         root = ET.fromstring(data)
     except ET.ParseError as e:
-        raise ValueError(f"La respuesta del servidor no es XML válido: {e}") from e
+        raise ValueError(f"El servidor no ha devuelto la lista de capas ({'respuesta vacía' if not data else 'respuesta no válida'}). "
+                         "Prueba más tarde o revisa la dirección de la conexión") from e
     if _tag(root) in ('ServiceExceptionReport', 'ExceptionReport'):
-        raise ValueError("El servidor ha devuelto un error: " + ' '.join(t.strip() for t in root.itertext() if t.strip())[:200])
+        texto = ' '.join(t.strip() for t in root.itertext() if t.strip())[:200]
+        raise ValueError(f"El servidor ha devuelto un error ({texto}). Prueba más tarde o revisa la dirección de la conexión")
+    if _tag(root) not in CAPABILITIES:
+        raise ValueError("Esa dirección no es la de un servicio WMS, WMTS o WFS (responde otra cosa, p. ej. una página web). "
+                         "Prueba más tarde o revisa la dirección de la conexión")
     if service_type == 'wfs':
         return _parse_wfs(root)
     if service_type == 'wmts':

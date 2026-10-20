@@ -7,11 +7,14 @@ license   : GNU GPL v2 or later
 """
 
 import os
+import traceback
 
+from qgis.core import Qgis, QgsMessageLog
 from qgis.PyQt.QtCore import QCoreApplication, Qt
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
+from .core.mensajes import explicar
 from .project_builder_dockwidget import ProjectBuilderDockWidget
 
 PLUGIN_DIR = os.path.dirname(__file__)
@@ -64,7 +67,16 @@ class ProjectBuilder:
     def run(self):
         """Muestra el panel. Se crea una sola vez y se reutiliza."""
         if self.dockwidget is None:
-            self.dockwidget = ProjectBuilderDockWidget(self.iface)
+            try:
+                self.dockwidget = ProjectBuilderDockWidget(self.iface)
+            except Exception as e:  # noqa: BLE001 (sin panel no hay dónde avisar: se avisa en la barra de QGIS, sin ventana de error)
+                detalle = traceback.format_exc()
+                QgsMessageLog.logMessage(detalle, 'ProjectBuilder', Qgis.MessageLevel.Critical)
+                self.iface.messageBar().pushMessage(
+                    "ProjectBuilder", f"No se ha podido abrir el panel: {explicar(e)}. Si vuelve a pasar, copia el detalle de "
+                    "Ver → Paneles → Registro de mensajes (pestaña ProjectBuilder) y envíaselo al autor del plugin",
+                    level=Qgis.MessageLevel.Critical, duration=0)
+                return
             self.dockwidget.setWindowIcon(QIcon(os.path.join(PLUGIN_DIR, "icon.svg")))
             self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dockwidget)
         self.dockwidget.show()

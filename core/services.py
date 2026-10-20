@@ -39,6 +39,24 @@ class Service:
     crs_list: list = field(default_factory=list)  #SRC que admite la capa (de GetCapabilities)
     heavy: bool = False  #Servicio pesado (p. ej. WFS de toda España): se avisa en el árbol
 
+    def __post_init__(self):
+        """
+        Comprueba los datos (pueden venir de un favoritos.json o un services.json editado a mano). Lanza TypeError si falta
+        el nombre o la dirección; el resto de valores raros se corrigen (números a texto, vacíos...).
+        """
+        if not isinstance(self.name, (str, int, float)) or not str(self.name).strip():
+            raise TypeError("servicio sin nombre")
+        if not isinstance(self.url, str) or not self.url.strip():
+            raise TypeError("servicio sin dirección")
+        self.name, self.url = str(self.name).strip(), self.url.strip()
+        for campo in ('layer', 'type', 'crs', 'format', 'style', 'tilematrixset', 'authcfg'):
+            valor = getattr(self, campo)
+            setattr(self, campo, '' if valor is None or isinstance(valor, (list, dict, bool)) else str(valor))
+        self.type = self.type.lower() if self.type.lower() in (WMS, WMTS, WFS) else WMS
+        self.format = self.format or 'image/png'
+        self.crs_list = [str(c) for c in self.crs_list] if isinstance(self.crs_list, list) else []
+        self.heavy = self.heavy is True
+
     def key(self):
         """Identificador único de la capa (para favoritos y para no añadirla dos veces)."""
         return f"{self.type}|{self.url.rstrip('/?')}|{self.layer}".lower()
@@ -48,6 +66,9 @@ class Service:
 
     @classmethod
     def from_dict(cls, data):
+        """Service a partir de un diccionario. Lanza TypeError si no es un diccionario o le falta el nombre o la dirección."""
+        if not isinstance(data, dict):
+            raise TypeError("el servicio no es un diccionario")
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
     def choose_crs(self, project_crs=''):
@@ -126,18 +147,21 @@ def load_catalog(path=SERVICES_FILE):
     if grupos is None:
         grupos = [{'nombre': 'Servicios', 'servicios': data.get('wms', [])}]
     if not isinstance(grupos, list):
-        raise ServicesError("Error en services.json: «grupos» debe ser una lista")
+        raise ServicesError("El catálogo de servicios (services.json) está dañado: «grupos» debe ser una lista. "
+                            "Vuelve a instalar el plugin o espera a la próxima actualización del catálogo")
     resultado = []
     for g, grupo in enumerate(grupos, start=1):
         if not isinstance(grupo, dict):
-            raise ServicesError(f"Error en services.json, grupo {g}: formato no válido")
+            raise ServicesError(f"El catálogo de servicios (services.json) está dañado en el grupo {g}. "
+                                "Vuelve a instalar el plugin o espera a la próxima actualización del catálogo")
         servicios = []
         for i, item in enumerate(grupo.get('servicios', []), start=1):
             try:
                 servicios.append(Service.from_dict(item))
             except (TypeError, AttributeError) as e:
-                raise ServicesError(f"Error en services.json, grupo {g}, servicio {i}: faltan datos "
-                                    f"(se necesitan al menos name y url)") from e
+                raise ServicesError(f"El catálogo de servicios (services.json) está dañado: al servicio {i} del grupo {g} "
+                                    "le falta el nombre o la dirección (name y url). Vuelve a instalar el plugin o espera "
+                                    "a la próxima actualización del catálogo") from e
         resultado.append((grupo.get('nombre', f'Grupo {g}'), servicios))
     return resultado
 
@@ -191,12 +215,24 @@ def health_path():
 
 
 def load_health(path=None):
-    """{'fecha': 'AAAA-MM-DD', 'servicios': {clave: {'ok': bool, 'url': url que funciona, 'detalle': texto}}}"""
+    """
+    {'fecha': 'AAAA-MM-DD', 'servicios': {clave: {'ok': bool, 'url': url que funciona, 'detalle': texto}}}
+    Si el fichero está dañado o tiene datos raros, se ignora lo que no sirve (se volverá a comprobar).
+    """
     path = path or health_path()
     try:
-        return _read_json(path, "estado_servicios.json") if os.path.isfile(path) else {}
+        datos = _read_json(path, "estado_servicios.json") if os.path.isfile(path) else {}
     except ServicesError:
         return {}
+    servicios = datos.get('servicios')
+    limpio = {}
+    for clave, estado in (servicios.items() if isinstance(servicios, dict) else ()):
+        if isinstance(clave, str) and isinstance(estado, dict):
+            limpio[clave] = {'ok': estado.get('ok') is not False,
+                             'url': estado.get('url') if isinstance(estado.get('url'), str) else '',
+                             'detalle': str(estado.get('detalle') or '')}
+    fecha = datos.get('fecha')
+    return {'fecha': fecha if isinstance(fecha, str) else '', 'servicios': limpio}
 
 
 def save_health(health, path=None):
@@ -226,22 +262,38 @@ def url_variants(url):
     return variantes
 
 
-def load_favorites(path=None):
+def load_favorites(path=None, descartados=None):
+    """
+    Favoritos guardados. Los que estén dañados (sin nombre o sin dirección...) se saltan y se anotan en descartados
+    (si se pasa una lista), para no perder los buenos. Lanza ServicesError si el fichero entero no se puede leer.
+    """
     path = path or favorites_path()
     if not os.path.isfile(path):
         return []
     lista = _read_json(path, "favoritos.json").get('favoritos', [])
-    try:
-        return [Service.from_dict(d) for d in lista]
-    except (TypeError, AttributeError) as e:
-        raise ServicesError("El fichero de favoritos tiene un formato no válido") from e
+    if not isinstance(lista, list):
+        raise ServicesError("El fichero de favoritos está dañado (no tiene una lista de favoritos): vuelve a añadir tus "
+                            "favoritos con ★")
+    favoritos = []
+    for d in lista:
+        try:
+            favoritos.append(Service.from_dict(d))
+        except (TypeError, AttributeError):
+            if descartados is not None:
+                descartados.append(d)
+    return favoritos
 
 
 def save_favorites(favorites, path=None):
+    """Guarda los favoritos. Lanza ServicesError (con el motivo explicado) si no se puede escribir el fichero."""
     path = path or favorites_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump({'favoritos': [s.to_dict() for s in favorites]}, f, ensure_ascii=False, indent=2)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'favoritos': [s.to_dict() for s in favorites]}, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        from .mensajes import explicar
+        raise ServicesError(f"No se pudieron guardar los favoritos en {path}: {explicar(e)}") from e
 
 
 # ---------------------------------------------------------------- Conexiones guardadas en QGIS
@@ -267,16 +319,26 @@ def qgis_connections():
     return conexiones
 
 
+_REPARAR = {  #Qué hacer si cada fichero está dañado
+    'services.json': "Vuelve a instalar el plugin o espera a la próxima actualización del catálogo",
+    'favoritos.json': "Vuelve a añadir tus favoritos con ★",
+    'estado_servicios.json': "No hace falta hacer nada: se volverá a comprobar",
+}
+
+
 def _read_json(path, nombre):
     try:
         with open(path, encoding='utf-8') as f:
             datos = json.load(f)
     except FileNotFoundError as e:
-        raise ServicesError(f"No se encuentra el fichero {nombre}: {path}") from e
+        raise ServicesError(f"No se encuentra el fichero {nombre} ({path}). Vuelve a instalar el plugin") from e
     except json.JSONDecodeError as e:
-        raise ServicesError(f"Error en {nombre}, línea {e.lineno}, columna {e.colno}: {e.msg}") from e
+        raise ServicesError(f"El fichero {nombre} está dañado (línea {e.lineno}, columna {e.colno}). "
+                            f"{_REPARAR.get(nombre, 'Vuelve a instalar el plugin')}") from e
     except (ValueError, OSError) as e:  #Codificación que no es UTF-8, fichero bloqueado...
-        raise ServicesError(f"No se puede leer {nombre}: {e}") from e
+        from .mensajes import explicar
+        raise ServicesError(f"No se puede leer {nombre}: {explicar(e, _REPARAR.get(nombre, 'Vuelve a instalar el plugin'))}") from e
     if not isinstance(datos, dict):
-        raise ServicesError(f"El fichero {nombre} no tiene el formato esperado")
+        raise ServicesError(f"El fichero {nombre} está dañado (no tiene el formato esperado). "
+                            f"{_REPARAR.get(nombre, 'Vuelve a instalar el plugin')}")
     return datos

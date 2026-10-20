@@ -177,6 +177,8 @@ def map_extent(capas, destino):
     for capa in capas:
         if capa is None or not capa.isValid():
             continue
+        if isinstance(capa, QgsVectorLayer) and capa.featureCount() == 0:  #Sin elementos: su «extensión» no es real
+            continue
         extension_capa = capa.extent()
         if extension_capa.isNull():
             continue

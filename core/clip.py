@@ -24,6 +24,7 @@ from qgis.core import (
 )
 
 from .formats import style_path
+from .mensajes import explicar
 
 ZONE_TABLE = 'zona_trabajo'  #Nombre de la capa de la zona dentro del proyecto
 ZONE_STYLE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'styles', 'zona_trabajo.qml')  #Contorno rojo sin relleno
@@ -48,13 +49,14 @@ def geometry_from_layer(layer, selected_only=False):
     features = layer.selectedFeatures() if selected_only else layer.getFeatures()
     geometries = [f.geometry() for f in features if f.hasGeometry()]
     if not geometries:
-        raise ZoneError("No hay elementos seleccionados en la capa de la zona" if selected_only
-                        else f"La capa {layer.name()} no tiene elementos")
+        raise ZoneError("No hay elementos seleccionados en la capa de la zona: selecciónalos en el mapa o desmarca "
+                        "«Solo los elementos seleccionados»" if selected_only
+                        else f"La capa {layer.name()} no tiene elementos: elige otra capa para la zona de trabajo")
     if not layer.crs().isValid():
         raise ZoneError(f"La capa {layer.name()} no tiene SRC: asígnaselo en sus propiedades para usarla como zona")
     geometry = QgsGeometry.unaryUnion(geometries)  #Un municipio con varias partes (islas...) queda como un solo multipolígono
     if geometry.isNull() or geometry.type() != Qgis.GeometryType.Polygon:
-        raise ZoneError(f"La capa {layer.name()} no es de polígonos")
+        raise ZoneError(f"La capa {layer.name()} no es de polígonos: elige una capa de polígonos para la zona de trabajo")
     return _polygons_only(geometry.makeValid()), layer.crs()
 
 
@@ -67,7 +69,8 @@ def _polygons_only(geometry):
         return geometry
     partes = [p for p in geometry.asGeometryCollection() if p.type() == Qgis.GeometryType.Polygon and not p.isEmpty()]
     if not partes:
-        raise ZoneError("La zona de trabajo no tiene ninguna superficie (¿polígonos degenerados?)")
+        raise ZoneError("La zona de trabajo no tiene ninguna superficie (sus polígonos están dañados o son demasiado "
+                        "pequeños): repara la capa (Vectorial → Herramientas de geometría → Reparar geometrías) o elige otra")
     return QgsGeometry.collectGeometry(partes)
 
 
@@ -108,7 +111,7 @@ def write_zone(geometry, crs, path=None):
     Devuelve la ruta del GeoPackage.
     """
     if crs is None or not crs.isValid():
-        raise ZoneError("La zona de trabajo no tiene SRC")
+        raise ZoneError("La zona de trabajo no tiene SRC: elige de nuevo la capa o el rectángulo de la zona")
     path = path or QgsProcessingUtils.generateTempFilename(ZONE_TABLE + '.gpkg')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     capa = QgsVectorLayer(f"MultiPolygon?crs={crs.authid() or 'wkt:' + crs.toWkt()}", ZONE_TABLE, 'memory')
@@ -117,13 +120,13 @@ def write_zone(geometry, crs, path=None):
     geometry.convertToMultiType()
     elemento.setGeometry(geometry)
     if not capa.dataProvider().addFeatures([elemento])[0] or capa.featureCount() == 0:  #Comprobado: si no, la zona saldría vacía
-        raise ZoneError("No se pudo preparar la zona de trabajo (geometría no válida)")
+        raise ZoneError("No se pudo preparar la zona de trabajo (su geometría no es válida): repara la capa (Vectorial → Herramientas de geometría → Reparar geometrías) o elige otra")
     opciones = QgsVectorFileWriter.SaveVectorOptions()
     opciones.driverName = 'GPKG'
     opciones.layerName = ZONE_TABLE
     error, mensaje, _, _ = QgsVectorFileWriter.writeAsVectorFormatV3(capa, path, QgsProject.instance().transformContext(), opciones)
     if error != QgsVectorFileWriter.WriterError.NoError:  #Comparación explícita (en PyQt6 los enum siempre valen True)
-        raise ZoneError(f"No se pudo guardar la zona de trabajo: {mensaje}")
+        raise ZoneError(f"No se pudo guardar la zona de trabajo: {explicar(mensaje, 'Comprueba que queda espacio en el disco')}")
     if os.path.isfile(ZONE_STYLE):
         shutil.copy2(ZONE_STYLE, style_path(path))  #El estilo viaja con la zona (lo usan las exportaciones)
     return path

@@ -12,6 +12,7 @@ from qgis.core import (
 )
 
 from .formats import MULTILAYER, RASTER, VECTOR, extension, layer_kind, style_path, vector_sublayers
+from .mensajes import explicar
 
 
 def create_project(folder, name, crs):
@@ -30,7 +31,8 @@ def create_project(folder, name, crs):
 def save_project(project):
     """Guarda el proyecto en su ruta (una sola vez, al final). Devuelve la ruta del fichero."""
     if not project.write():
-        raise OSError(f"No se pudo guardar el proyecto: {project.error()}")
+        raise OSError(f"No se pudo guardar el proyecto {project.fileName()}: "
+                      f"{explicar(project.error(), 'Elige otra carpeta o cierra el proyecto si está abierto en otro programa')}")
     return project.fileName()
 
 
@@ -99,12 +101,13 @@ def add_layer(project, path, group_path=(), qml=None, name=None, styles=None):
         if extension(path) == '.shp':
             layers[0].setProviderEncoding('UTF-8')
     else:
-        raise ValueError(f"Error en la capa {fichero}: no se reconoce el tipo")
+        raise ValueError(f"No se reconoce el formato de la capa {fichero}: comprueba que se abre en QGIS")
 
     group = group_for(project, group_path)
     for layer in layers:
         if not layer.isValid():
-            raise ValueError(f"La capa {layer.name()} no es válida")
+            raise ValueError(f"La capa {layer.name()} no se ha podido abrir después de copiarla: comprueba que se abre en "
+                             "QGIS y vuelve a crear el proyecto")
         estilo = (styles or {}).get(layer.name())  #Estilo propio de esa capa (guardado en el GeoPackage de origen)
         if len(layers) == 1:  #El .qml es de una capa: solo se aplica si el fichero tiene una
             _apply_style(layer, qml or (style_path(path) if os.path.isfile(style_path(path)) else estilo))
@@ -117,17 +120,20 @@ def add_layer(project, path, group_path=(), qml=None, name=None, styles=None):
     return layers
 
 
-def add_geopackage_tables(project, gpkg, tables, group_path=(), qml=None, styles=None):
+def add_geopackage_tables(project, gpkg, tables, group_path=(), qml=None, styles=None, name=None):
     """
     Añade tablas del GeoPackage común del proyecto. qml: estilo de origen (si la capa venía de un fichero de una sola capa);
     styles: {tabla: .qml} con el estilo propio de cada tabla (p. ej. el guardado en el GeoPackage de origen).
+    name: nombre de la capa en el proyecto si es una sola tabla (las del proyecto abierto conservan el suyo, aunque lleve
+    caracteres que no valen para una tabla, como «Plano 1:5000»).
     """
     group = group_for(project, group_path)
     added = []
     for table in tables:
-        layer = QgsVectorLayer(f"{gpkg}|layername={table}", table, 'ogr')
+        layer = QgsVectorLayer(f"{gpkg}|layername={table}", name if name and len(tables) == 1 else table, 'ogr')
         if not layer.isValid():
-            raise ValueError(f"La capa {table} no es válida")
+            raise ValueError(f"La capa {table} no se ha podido abrir después de copiarla: comprueba que se abre en QGIS y "
+                             "vuelve a crear el proyecto")
         _apply_style(layer, qml or (styles or {}).get(table), save_in_geopackage=True)
         project.addMapLayer(layer, False)
         _add_to_tree(group, layer)
@@ -155,7 +161,8 @@ def add_service(project, group, service):
     else:
         layer = QgsRasterLayer(uri, service.name, 'wms')
     if not layer.isValid():
-        raise ValueError(f"El servicio {service.name} no se ha podido cargar")
+        raise ValueError(f"El servicio {service.name} no se ha podido añadir: no responde ahora mismo o ha cambiado. "
+                         "Pulsa ⟳ en «Servicios web» para comprobarlo y añádelo después desde QGIS")
     project.addMapLayer(layer, False)
     _add_to_tree(group, layer, position=-1)
     return layer
@@ -188,7 +195,7 @@ def add_linked_layer(project, layer, group_path=()):
     con su misma fuente y su estilo. layer debe ser ya una copia (layer.clone()) que no pertenezca a ningún proyecto.
     """
     if not layer.isValid():
-        raise ValueError(f"La capa {layer.name()} no se ha podido cargar")
+        raise ValueError(f"La capa {layer.name()} no se ha podido añadir: comprueba que se ve bien en el proyecto abierto en QGIS")
     project.addMapLayer(layer, False)
     _add_to_tree(group_for(project, group_path), layer)
     return layer

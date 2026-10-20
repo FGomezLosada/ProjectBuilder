@@ -20,7 +20,8 @@ KEEP = 'keep'  #Conservar el formato original siempre que GDAL pueda escribirlo
 
 # Vectoriales que se pueden conservar (GDAL los escribe sin problemas). DXF y GPX tienen esquemas muy
 # rígidos (se pierden atributos), por eso se convierten a GeoPackage aunque se elija conservar.
-KEEP_VECTOR = ('.shp', '.geojson', '.json', '.kml', '.gml', '.fgb', '.tab', '.mif')
+# MIF tampoco: GDAL no sabe escribirlo por la extensión (sale un .tab) y la capa se perdería.
+KEEP_VECTOR = ('.shp', '.geojson', '.json', '.kml', '.gml', '.fgb', '.tab')
 # Ráster que se pueden conservar. ECW, MrSID y VRT no (formatos propietarios o ficheros que apuntan a otros).
 KEEP_RASTER = ('.tif', '.tiff', '.img', '.asc', '.jp2', '.png', '.jpg', '.jpeg')
 
@@ -39,10 +40,18 @@ def extension(path):
     return os.path.splitext(path)[1].lower()
 
 
+# Tablas internas de SpatiaLite que GDAL muestra como capas (no son datos del usuario: no se listan ni se copian)
+SPATIALITE_SYSTEM = {'knn', 'knn2', 'data_licenses', 'spatialindex', 'elementarygeometries', 'sql_statements_log',
+                     'spatialite_history', 'sqlite_sequence'}
+
+
 def vector_sublayers(path):
     """Capas vectoriales que contiene un fichero (un GeoPackage puede tener varias)."""
-    return [s for s in QgsProviderRegistry.instance().querySublayers(path)
-            if s.type() == Qgis.LayerType.Vector]  #Solo capas vectoriales (se ignoran ráster o tablas internas)
+    capas = [s for s in QgsProviderRegistry.instance().querySublayers(path)
+             if s.type() == Qgis.LayerType.Vector]  #Solo capas vectoriales (se ignoran ráster o tablas internas)
+    if extension(path) in ('.sqlite', '.db'):
+        capas = [s for s in capas if s.name().lower() not in SPATIALITE_SYSTEM]
+    return capas
 
 
 def layer_kind(path):
@@ -72,6 +81,8 @@ def output_path(path_target, kind, mode):
         return base + '.gpkg'
     if kind == RASTER:
         return path_target if (mode == KEEP and ext in KEEP_RASTER) else base + '.tif'
+    if mode == KEEP and ext == '.json':  #GeoJSON con extensión .json: GDAL no sabe escribirlo por la extensión
+        return base + '.geojson'
     return path_target if (mode == KEEP and ext in KEEP_VECTOR) else base + '.gpkg'
 
 

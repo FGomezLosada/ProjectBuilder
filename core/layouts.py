@@ -22,6 +22,8 @@ from qgis.core import (
 )
 from qgis.PyQt.QtXml import QDomDocument
 
+from .mensajes import explicar
+
 
 class LayoutError(Exception):
     """Error al leer o añadir una composición (el mensaje se muestra al usuario)."""
@@ -53,11 +55,12 @@ def snapshot_layout(project, name):
     """
     layout = project.layoutManager().layoutByName(name)
     if layout is None:
-        raise LayoutError(f"La composición «{name}» ya no está en el proyecto abierto")
+        raise LayoutError(f"La composición «{name}» ya no está en el proyecto abierto: desmárcala o vuelve a crearla en QGIS")
     ruta = QgsProcessingUtils.generateTempFilename(f"{name}.qpt")
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     if not layout.saveAsTemplate(ruta, QgsReadWriteContext()):
-        raise LayoutError(f"No se pudo copiar la composición «{name}»")
+        raise LayoutError(f"No se pudo copiar la composición «{name}»: comprueba que se abre bien en QGIS "
+                          "(Proyecto → Administrador de composiciones) o desmárcala")
     return ruta
 
 
@@ -66,12 +69,17 @@ def _read_template(path):
         with open(path, 'rb') as f:
             contenido = f.read()
     except OSError as e:
-        raise LayoutError(f"No se puede leer la plantilla {path}: {e}") from e
+        raise LayoutError(f"No se puede leer la plantilla {path}: {explicar(e, 'Quítala de la lista y vuelve a añadirla')}") from e
     documento = QDomDocument()
     documento.setContent(contenido)  #En Qt6 devuelve un objeto y en Qt5 una tupla: se comprueba el resultado abajo
     if documento.documentElement().isNull() or documento.documentElement().tagName() != 'Layout':
-        raise LayoutError(f"{os.path.basename(path)} no es una plantilla de composición de QGIS (.qpt)")
+        raise LayoutError(f"{os.path.basename(path)} no es una plantilla de composición de QGIS (.qpt): elige una plantilla guardada desde el diseñador de QGIS (Composición → Guardar como plantilla) o quítala de la lista")
     return documento
+
+
+def check_template(path):
+    """Comprueba que el fichero es una plantilla de composición que se puede leer (lanza LayoutError si no)."""
+    _read_template(path)
 
 
 def _unique_name(project, name):
@@ -109,7 +117,7 @@ def add_layout(project, path, name=None, extent=None):
     layout = QgsPrintLayout(project)
     _, ok = layout.loadFromTemplate(documento, QgsReadWriteContext(), True)
     if not ok:
-        raise LayoutError(f"No se pudo cargar la plantilla {os.path.basename(path)}")
+        raise LayoutError(f"No se pudo cargar la plantilla {os.path.basename(path)} (está dañada o es de otra versión): elige una plantilla guardada desde el diseñador de QGIS (Composición → Guardar como plantilla) o quítala de la lista")
     layout.setName(_unique_name(project, name or os.path.splitext(os.path.basename(path))[0]))
     for item in layout.items():
         if isinstance(item, QgsLayoutItemMap):
@@ -122,5 +130,6 @@ def add_layout(project, path, name=None, extent=None):
         elif isinstance(item, QgsLayoutItemLegend):
             item.setAutoUpdateModel(True)  #La leyenda se rellena con las capas del proyecto nuevo
     if not project.layoutManager().addLayout(layout):
-        raise LayoutError(f"No se pudo añadir la composición «{layout.name()}»")
+        raise LayoutError(f"No se pudo añadir la composición «{layout.name()}»: vuelve a crear el proyecto o añádela "
+                          "después desde QGIS (Proyecto → Administrador de composiciones)")
     return layout

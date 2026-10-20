@@ -1,6 +1,7 @@
 """Recorrido de las carpetas de capas para saber qué se puede añadir al proyecto."""
 
 import os
+import time
 from dataclasses import dataclass, field
 
 from qgis.core import Qgis, QgsWkbTypes
@@ -19,6 +20,11 @@ from .formats import (
 
 # Tipo de geometría (para elegir el icono del árbol)
 POINT, LINE, POLYGON, TABLE = 'point', 'line', 'polygon', 'table'
+# Topes al recorrer una carpeta: si alguien añade C:\ o «Documentos», QGIS no se queda parado minutos
+MAX_ENTRIES = 20000  #Ficheros y carpetas revisados como mucho
+MAX_SECONDS = 20  #Tiempo máximo del recorrido
+_recorrido = None  #Estado del recorrido en curso: {'revisados', 'limite', 'cortado'}
+truncated = False  #True si el último recorrido se cortó por los topes (el panel lo avisa)
 
 
 @dataclass
@@ -79,13 +85,31 @@ def scan_folder(start_path):
     """
     Recorre start_path (y sus subcarpetas) y devuelve la lista de Entry.
     Solo se incluyen carpetas y ficheros con un formato admitido. Orden alfabético.
+    Si la carpeta es enorme, se corta al llegar a MAX_ENTRIES o MAX_SECONDS y truncated queda en True.
     """
+    global _recorrido, truncated
+    principal = _recorrido is None  #Primera llamada (las de las subcarpetas comparten el mismo recorrido)
+    if principal:
+        _recorrido = {'revisados': 0, 'limite': time.monotonic() + MAX_SECONDS, 'cortado': False}
+    try:
+        return _scan(start_path)
+    finally:
+        if principal:
+            truncated = _recorrido['cortado']
+            _recorrido = None
+
+
+def _scan(start_path):
     entries = []
     try:
         nombres = os.listdir(start_path)
     except OSError:  #Sin permiso («System Volume Information»...) o unidad de red desconectada: se salta
         return entries
     for name in sorted(nombres, key=str.lower):
+        _recorrido['revisados'] += 1
+        if _recorrido['revisados'] > MAX_ENTRIES or time.monotonic() > _recorrido['limite']:
+            _recorrido['cortado'] = True
+            break
         entry = scan_entry(os.path.join(start_path, name))
         if entry is not None:
             entries.append(entry)

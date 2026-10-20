@@ -19,6 +19,8 @@ from qgis.core import (
     QgsWkbTypes,
 )
 
+from .mensajes import explicar
+
 PROVIDERS = {  #Proveedor de QGIS -> (nombre que se muestra, icono)
     'postgres': ('PostGIS', '/mIconPostgis.svg'),
     'spatialite': ('SpatiaLite', '/mIconSpatialite.svg'),
@@ -26,6 +28,9 @@ PROVIDERS = {  #Proveedor de QGIS -> (nombre que se muestra, icono)
 }
 SYSTEM_TABLES = {'layer_styles', 'spatial_ref_sys', 'geometry_columns', 'geography_columns', 'raster_columns',
                  'raster_overviews', 'topology', 'layer'}  #Tablas internas que no se muestran
+
+
+REVISAR_CONEXION = "Comprueba la conexión en el Administrador de fuentes de datos de QGIS"
 
 
 class DatabaseError(Exception):
@@ -51,7 +56,8 @@ def connection(provider, name):
     metadatos = _metadata(provider)
     conexiones = metadatos.connections() if metadatos else {}
     if name not in conexiones:
-        raise DatabaseError(f"No existe la conexión {PROVIDERS.get(provider, (provider,))[0]} «{name}» en QGIS")
+        raise DatabaseError(f"No existe la conexión {PROVIDERS.get(provider, (provider,))[0]} «{name}» en QGIS: créala de nuevo "
+                            "(con el mismo nombre) en el Administrador de fuentes de datos o quítala de la configuración")
     return conexiones[name]
 
 
@@ -65,7 +71,7 @@ def tables(provider, name):
     try:
         propiedades = conexion.tables('', filtro)
     except Exception as e:  #QgsProviderConnectionException: servidor caído, contraseña incorrecta...
-        raise DatabaseError(f"No se pudo conectar a «{name}»: {e}") from e
+        raise DatabaseError(f"No se pudo conectar a «{name}»: {explicar(e, REVISAR_CONEXION)}") from e
     lista = []
     for tabla in propiedades:
         if not tabla.geometryColumn() or tabla.tableName().lower() in SYSTEM_TABLES:
@@ -102,7 +108,8 @@ def download(uri, provider, destination, layer_name, zone_extent=None):
     """
     capa = QgsVectorLayer(uri, layer_name, provider)
     if not capa.isValid():
-        raise DatabaseError(f"No se pudo abrir la tabla {layer_name} de la base de datos")
+        raise DatabaseError(f"No se pudo abrir la tabla {layer_name} de la base de datos: comprueba que sigue existiendo y "
+                            "que la conexión funciona en QGIS")
     opciones = QgsVectorFileWriter.SaveVectorOptions()
     opciones.driverName = 'GPKG'
     opciones.layerName = layer_name
@@ -114,5 +121,5 @@ def download(uri, provider, destination, layer_name, zone_extent=None):
         opciones.filterExtent = rectangulo  #El servidor solo envía lo que cae en el rectángulo de la zona
     error, mensaje, _, _ = QgsVectorFileWriter.writeAsVectorFormatV3(capa, destination, contexto, opciones)
     if error != QgsVectorFileWriter.WriterError.NoError:  #Comparación explícita (en PyQt6 los enum siempre valen True)
-        raise DatabaseError(f"No se pudo descargar la tabla {layer_name}: {mensaje}")
+        raise DatabaseError(f"No se pudo descargar la tabla {layer_name}: {explicar(mensaje, REVISAR_CONEXION)}")
     return QgsVectorLayer(destination, layer_name, 'ogr').featureCount()

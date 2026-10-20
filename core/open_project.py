@@ -24,6 +24,7 @@ from qgis.core import (
 )
 
 from .formats import vector_sublayers
+from .mensajes import explicar
 
 COPY, LINK = 'copiar', 'enlazar'
 WEB_VECTOR = {'WFS', 'OAPIF', 'arcgisfeatureserver'}  #Proveedores vectoriales de servicios web
@@ -119,5 +120,5 @@ def prepare_copy(layer):
     error, mensaje, _, _ = QgsVectorFileWriter.writeAsVectorFormatV3(layer, temporal, QgsProject.instance().transformContext(),
                                                                      opciones)
     if error != QgsVectorFileWriter.WriterError.NoError:  #Comparación explícita (en PyQt6 los enum siempre valen True)
-        raise OSError(f"No se pudo leer la capa {layer.name()}: {mensaje}")
+        raise OSError(f"No se pudo leer la capa {layer.name()}: {explicar(mensaje, 'Comprueba que la capa se ve bien en QGIS')}")
     return temporal, nombre

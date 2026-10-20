@@ -51,7 +51,7 @@ barra = dw.messageBar
 
 # 1. Un error de validación sale en la barra del panel, no en una ventana
 dw.create_project(background=False)  #Sin nombre ni carpeta
-paso1 = (_texto(barra) == "No se ha introducido un nombre para el proyecto" and not ventanas
+paso1 = (_texto(barra) == "Falta el nombre del proyecto: escríbelo en «Nombre del proyecto»" and not ventanas
          and barra.currentItem().level() == Qgis.MessageLevel.Warning)
 
 # 2. Un aviso largo: se ve la primera línea y el resto con «Más»
@@ -102,7 +102,7 @@ paso5 = (barra.currentItem().level() == Qgis.MessageLevel.Warning and "1 problem
 # 6. Al volver a pulsar Crear se limpian los avisos anteriores
 dw.nameProject.clear()
 dw.create_project(background=False)
-paso6 = avisos_antes >= 1 and len(barra.items()) == 1 and _texto(barra).startswith("No se ha introducido")
+paso6 = avisos_antes >= 1 and len(barra.items()) == 1 and _texto(barra).startswith("Falta el nombre")
 
 QMessageBox.warning = _warning
 for nombre, funcion in _originales.items():

@@ -142,7 +142,7 @@ El mismo menú permite **abrir la carpeta** de la capa en el Explorador y **quit
 |---|---|
 | **Un solo GeoPackage + GeoTIFF** (recomendado) | Todas las capas vectoriales como tablas de `<nombre>.gpkg`, con sus estilos dentro. Los ráster en GeoTIFF comprimido. Es lo más cómodo para mover o enviar el proyecto. |
 | **Un GeoPackage por capa + GeoTIFF** | Cada capa vectorial en su propio `.gpkg`, con la misma estructura de carpetas que el origen. |
-| **Conservar el formato original** | Cada capa en su formato. Lo que GDAL no puede escribir (ECW, MrSID, DXF, GPX…) se convierte igualmente, y los ficheros con varias capas salen en GeoPackage. |
+| **Conservar el formato original** | Cada capa en su formato. Lo que GDAL no puede escribir bien (ECW, MrSID, VRT, DXF, GPX, MIF…) se convierte igualmente, y los ficheros con varias capas salen en GeoPackage. |
 
 En todos los casos se conserva la simbología de las capas: sus estilos `.qml`, los guardados dentro de los GeoPackage o de la base de datos, y los iconos SVG que usan (ver el [apartado 10](#10-estilos-simbología-e-iconos-qml-y-svg)). **Los datos de origen nunca se modifican.**
 

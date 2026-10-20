@@ -10,19 +10,25 @@ license   : GNU GPL v2 or later
 """
 
 import datetime
+import functools
 from functools import partial
+import inspect
 import os
+import shutil
 import time
+import traceback
 import unicodedata
 
 from qgis.core import (
     Qgis,
     QgsApplication,
     QgsCoordinateReferenceSystem,
+    QgsCsException,
     QgsNetworkAccessManager,
     QgsProject,
     QgsGeometry,
     QgsIconUtils,
+    QgsMessageLog,
     QgsMimeDataUtils,
     QgsRasterLayer,
     QgsRectangle,
@@ -55,6 +61,7 @@ from .core import database
 from .core import icons
 from .core import info
 from .core import layouts
+from .core import mensajes
 from .core import open_project
 from .core import stats
 from .core import project as qgis_project
@@ -87,6 +94,7 @@ from .core.formats import (
     style_path,
     vector_sublayers,
 )
+from .core import scanner as scanner_module
 from .core.scanner import LINE, POINT, POLYGON, TABLE, scan_entry, scan_folder
 from .core.task import ExportTask, Job
 
@@ -129,6 +137,48 @@ DROP_HINT = ("Arrastra aquí carpetas o ficheros de capas desde el Explorador de
              "Clic derecho en una capa: «Ver en el mapa». Doble clic: lo mismo.")
 HELP_URL = 'https://github.com/FGomezLosada/ProjectBuilder/blob/main/docs/MANUAL.md'  #Manual de uso, con capturas
 SETTINGS = 'project_builder/'  #Prefijo de las opciones que el plugin guarda en la configuración de QGIS
+MAX_PATH_LENGTH = 200  #Ruta máxima del GeoPackage del proyecto: Windows no admite más de 260 y las capas van en subcarpetas
+
+
+ERRORES_INESPERADOS = []  #Errores imprevistos que ha capturado protegido() (las pruebas comprueban que no hay ninguno)
+
+
+def protegido(accion):
+    """
+    Decorador de todo lo que el usuario puede lanzar desde el panel (botones, menús, arrastrar, temporizadores...).
+    Si algo imprevisto falla, en lugar de la ventana de error de Python sale un aviso claro en el panel y el detalle
+    técnico queda en el Registro de mensajes de QGIS (pestaña ProjectBuilder) para poder enviárselo al autor.
+    accion: qué se estaba haciendo, para el aviso («crear el proyecto», «añadir la carpeta»...).
+    """
+    def decorador(metodo):
+        parametros = inspect.signature(metodo).parameters.values()
+        variable = any(p.kind == p.VAR_POSITIONAL for p in parametros)
+        maximo = sum(1 for p in parametros if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)) - 1  #Sin self
+
+        @functools.wraps(metodo)
+        def envoltorio(self, *args, **kwargs):
+            if not variable:  #Como hace Qt: las señales envían datos (p. ej. clicked envía True/False) que el método no usa
+                args = args[:maximo]
+            try:
+                return metodo(self, *args, **kwargs)
+            except Exception as e:  # noqa: BLE001 (justo lo que se quiere: nada imprevisto llega al usuario como error de Python)
+                detalle = traceback.format_exc()
+                ERRORES_INESPERADOS.append(detalle)
+                QgsMessageLog.logMessage(f"Error inesperado al {accion}:\n{detalle}", 'ProjectBuilder', Qgis.MessageLevel.Critical)
+                if os.environ.get('PB_PRUEBAS'):
+                    print(f"ERROR INESPERADO al {accion}:\n{detalle}", flush=True)
+                while QApplication.overrideCursor() is not None:  #Si se había puesto el reloj de arena, se quita
+                    QApplication.restoreOverrideCursor()
+                try:
+                    if not sip.isdeleted(self):
+                        self.warn(f"No se ha podido {accion}: {mensajes.explicar(e)}.\n"
+                                  "Lo que tenías en el panel se conserva. Si vuelve a pasar, copia el detalle de "
+                                  "Ver → Paneles → Registro de mensajes (pestaña ProjectBuilder) y envíaselo al autor del plugin.")
+                except Exception:  # noqa: BLE001
+                    pass
+                return None
+        return envoltorio
+    return decorador
 
 
 def normalizar(texto):
@@ -167,6 +217,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setupUi(self)
 
         self.iface = iface
+        self.setup_messages()  #Lo primero: así se ven también los avisos que surjan al abrir el panel
         self.task = None  #Tarea de exportación en curso (se guarda para que Python no la elimine antes de tiempo)
 
         # Iconos de los botones (nativos de QGIS)
@@ -231,7 +282,6 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.setup_layouts()
         self.setup_configs()
         self.setup_tree_extras()
-        self.setup_messages()
         self.setup_help()
 
         # Resumen en vivo de lo que se va a generar. Se recalcula con un pequeño retardo: al marcar una carpeta
@@ -257,6 +307,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             crs = QgsCoordinateReferenceSystem('EPSG:25830')  #ETRS89 / UTM 30N (España peninsular)
         self.selectProjection.setCrs(crs)
 
+    @protegido('recordar el SRC')
     def remember_crs(self, crs):
         if crs.isValid():
             QSettings().setValue(SETTINGS + 'last_crs', crs.authid() or crs.toWkt())
@@ -309,16 +360,26 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 continue
             carpetas = [p for p in os.path.dirname(os.path.relpath(path, raiz)).split(os.sep) if p]
             grupo = (os.path.basename(os.path.normpath(raiz)), *carpetas)
-            kind = layer_kind(path)
-            if kind == RASTER:
-                filas.append(stats.layer_stats(QgsRasterLayer(path, os.path.splitext(os.path.basename(path))[0]), grupo))
+            if not os.path.exists(path):  #Borrado o movido después de añadirlo: se ve en el informe, sin errores
+                fila = stats.service_row(os.path.basename(path), ' / '.join(grupo))
+                fila.update(tipo='—', detalle="No se encuentra el fichero (¿se ha movido o borrado?): vuelve a añadir su carpeta")
+                filas.append(fila)
                 continue
-            subcapas = vector_sublayers(path)
-            for subcapa in subcapas:
-                if layers is not None and subcapa.name() not in layers:
+            try:
+                kind = layer_kind(path)
+                if kind == RASTER:
+                    filas.append(stats.layer_stats(QgsRasterLayer(path, os.path.splitext(os.path.basename(path))[0]), grupo))
                     continue
-                nombre = os.path.splitext(os.path.basename(path))[0] if len(subcapas) == 1 and kind == VECTOR else subcapa.name()
-                filas.append(stats.layer_stats(QgsVectorLayer(subcapa.uri(), nombre, 'ogr'), grupo, zona, elipsoide))
+                subcapas = vector_sublayers(path)
+                for subcapa in subcapas:
+                    if layers is not None and subcapa.name() not in layers:
+                        continue
+                    nombre = os.path.splitext(os.path.basename(path))[0] if len(subcapas) == 1 and kind == VECTOR else subcapa.name()
+                    filas.append(stats.layer_stats(QgsVectorLayer(subcapa.uri(), nombre, 'ogr'), grupo, zona, elipsoide))
+            except Exception:  # noqa: BLE001 (una capa rara no impide ver el informe de las demás)
+                fila = stats.service_row(os.path.basename(path), ' / '.join(grupo))
+                fila.update(tipo='—', detalle="No se puede leer: comprueba que se abre en QGIS")
+                filas.append(fila)
         for grupos, capa in self.selected_project_layers():
             filas.append(stats.layer_stats(capa, grupos, zona if open_project.how(capa) == open_project.COPY else None, elipsoide))
         for t in self.selected_db_tables():
@@ -328,6 +389,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             filas += [stats.service_row(s.name) for s in self.selected_services()]
         return filas
 
+    @protegido('preparar el informe de capas')
     def show_layers_report(self):
         """Botón «Informe de capas…»: calcula al instante lo que llevará el proyecto y lo muestra en una ventana."""
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Con capas grandes puede tardar unos segundos
@@ -338,7 +400,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         finally:
             QApplication.restoreOverrideCursor()
         if not filas:
-            return self.warn("No hay capas ni servicios marcados")
+            return self.warn("No hay capas ni servicios marcados: marca en el árbol las capas (o los servicios web) que "
+                             "quieres ver en el informe")
         datos = self._report_header()
         if getattr(self, 'zone_area_ha', None) is not None:
             datos.append(("Superficie de la zona", f"{stats.number(self.zone_area_ha)} ha"))
@@ -374,6 +437,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             ruta += {'PDF': '.pdf', 'Pág': '.html', 'Tab': '.csv'}.get(filtro[:3], '.pdf')
         return ruta
 
+    @protegido('guardar el informe')
     def save_layers_report(self, contenido, filas):
         """Guarda el informe en el formato que indique la extensión elegida (.pdf, .html o .csv)."""
         carpeta = self.pathFolderProject.text().strip() or self._last_dir('last_project_dir')
@@ -384,10 +448,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         try:
             stats.save_report(ruta, contenido, filas)
         except OSError as e:
-            return self.warn(f"No se pudo guardar el informe:\n{e}")
+            return self.warn(f"No se pudo guardar el informe en {ruta}: {mensajes.explicar(e, 'Elige otra carpeta')}")
         self.notify(f"Informe guardado: {ruta}", Qgis.MessageLevel.Success, 8)
         return ruta
 
+    @protegido('copiar el informe')
     def copy_layers_report(self, filas):
         """Copia la tabla de capas al portapapeles: como tabla en Word y como celdas en Excel."""
         datos = QMimeData()
@@ -407,6 +472,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         menu.aboutToShow.connect(self.fill_database_menu)  #Así salen también las conexiones creadas después
         self.addDatabaseButton.setMenu(menu)
 
+    @protegido('mostrar las conexiones de bases de datos')
     def fill_database_menu(self):
         menu = self.addDatabaseButton.menu()
         menu.clear()
@@ -439,6 +505,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         item.setFlags(flags)
         item.setCheckState(0, Qt.CheckState.Unchecked)
 
+    @protegido('añadir la base de datos')
     def add_database(self, provider, name, *args, avisos=None):
         """
         Añade al árbol una conexión de QGIS con sus esquemas y tablas con geometría. Si avisos es una lista,
@@ -446,8 +513,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         """
         avisar = avisos.append if avisos is not None else self.warn
         clave = f"{provider}:{name}"
-        if any(r.data(0, PATH_ROLE) == clave for r in self._roots(DB_ROOT)):
-            return avisar(f"La conexión «{name}» ya está en el árbol")
+        repetida = next((r for r in self._roots(DB_ROOT) if r.data(0, PATH_ROLE) == clave), None)
+        if repetida is not None:
+            if avisos is None:
+                self.notify(f"La conexión «{name}» ya está en el árbol (no hace falta añadirla otra vez)", Qgis.MessageLevel.Info, 5)
+            return repetida
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Conectar a un servidor puede tardar unos segundos
         try:
             tablas = database.tables(provider, name)
@@ -568,6 +638,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         item.setFlags(flags)
         item.setCheckState(0, Qt.CheckState.Unchecked)
 
+    @protegido('leer las capas del proyecto abierto')
     def load_project_layers(self, *args):
         """
         (Re)crea el bloque «Proyecto abierto en QGIS» con el mismo árbol de grupos y capas que el panel de capas de QGIS,
@@ -636,7 +707,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if open_project.how(capa) == open_project.LINK:
                 copia = capa.clone()  #Misma fuente y mismo estilo, pero independiente del proyecto abierto
                 if copia is None:
-                    self.prepare_errors.append(f"No se pudo copiar la capa {capa.name()}")
+                    self.prepare_errors.append(f"No se pudo copiar la capa {capa.name()}: comprueba que se ve bien en QGIS")
                 else:
                     copia.setName(capa.name())
                     self.project_links.append((grupos, copia))
@@ -649,7 +720,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             nombre = open_project.safe_name(capa.name())
             es_vectorial = isinstance(capa, QgsVectorLayer)
             if es_vectorial and mode == SINGLE:  #Como tabla del GeoPackage común
-                jobs.append(Job(fuente, gpkg, grupos, tables={subcapa: nombre_unico(nombre, tablas_usadas)}, qml=estilo))
+                jobs.append(Job(fuente, gpkg, grupos, tables={subcapa: nombre_unico(nombre, tablas_usadas)}, qml=estilo,
+                                name=capa.name()))
                 continue
             carpetas = [open_project.safe_name(g) for g in grupos]  #Subcarpetas = grupos del proyecto abierto
             ruta = os.path.join(folder_project, *carpetas, nombre + os.path.splitext(fuente)[1])
@@ -683,12 +755,14 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def _layout_files():
         """Plantillas .qpt añadidas con el botón (se recuerdan entre sesiones de QGIS)."""
         valor = QSettings().value(SETTINGS + 'layout_files', [])
-        return [valor] if isinstance(valor, str) else list(valor or [])
+        valores = [valor] if isinstance(valor, str) else valor if isinstance(valor, (list, tuple)) else []
+        return [v for v in valores if isinstance(v, str) and v]  #Lo que no sea una ruta (valores raros) se ignora
 
     @staticmethod
     def _set_layout_files(rutas):
         QSettings().setValue(SETTINGS + 'layout_files', rutas)
 
+    @protegido('actualizar la lista de composiciones')
     def load_layouts_tree(self, *args):
         """Rellena la lista de composiciones conservando lo que ya estuviera marcado."""
         marcadas = set(self.selected_layouts())
@@ -740,6 +814,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             marcar = tuple(item.data(0, LAYOUT_ROLE)) in claves
             item.setCheckState(0, Qt.CheckState.Checked if marcar else Qt.CheckState.Unchecked)
 
+    @protegido('añadir la plantilla')
     def add_layout_file(self, ruta=None):
         """Añade una plantilla .qpt de cualquier carpeta a «Mis plantillas .qpt» (y la deja marcada)."""
         if not ruta:
@@ -748,12 +823,17 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if not ruta:
             return
         self._remember_dir('last_layout_dir', os.path.dirname(ruta))
+        try:
+            layouts.check_template(ruta)  #Se comprueba ya: mejor saberlo ahora que al crear el proyecto
+        except layouts.LayoutError as e:
+            return self.warn(str(e))
         rutas = [r for r in self._layout_files() if os.path.normcase(r) != os.path.normcase(ruta)]
         self._set_layout_files([ruta, *rutas])
         marcadas = [*self.selected_layouts(), ('fichero', ruta)]
         self.load_layouts_tree()
         self.check_layouts(marcadas)
 
+    @protegido('quitar la plantilla')
     def remove_layout_file(self):
         """Quita de la lista la plantilla .qpt en la que se ha hecho clic (no borra el fichero)."""
         item = self.layoutsTree.currentItem()
@@ -819,6 +899,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         botones = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         return QMessageBox.question(self, "ProjectBuilder", pregunta, botones) == QMessageBox.StandardButton.Yes
 
+    @protegido('guardar la configuración')
     def save_current_config(self):
         actual = self.configCombo.currentText() if self.configCombo.currentData() else ''
         nombre = self.ask_name(actual)
@@ -845,6 +926,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         ruta, _ = QFileDialog.getOpenFileName(self, "Importar configuración", self._last_dir('last_config_dir'), filtro)
         return ruta
 
+    @protegido('importar la configuración')
     def import_config_file(self, *args, ruta=None):
         """Añade a mis configuraciones un .json (de un compañero, de otro ordenador...) y lo deja cargado en el panel."""
         ruta = ruta or self.ask_config_file(False)
@@ -860,6 +942,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.notify(f"Configuración «{nombre}» importada", Qgis.MessageLevel.Success, 6)
         return nombre
 
+    @protegido('exportar la configuración')
     def export_current_config(self, *args):
         """Guarda una copia de la configuración elegida en el fichero que se indique, para compartirla."""
         if not self.configCombo.currentData():
@@ -877,18 +960,28 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.notify(f"Configuración exportada: {ruta}", Qgis.MessageLevel.Success, 8)
         return ruta
 
+    @protegido('abrir la carpeta de configuraciones')
     def open_configs_folder(self, *args):
-        os.makedirs(configs.configs_dir(), exist_ok=True)
+        try:
+            os.makedirs(configs.configs_dir(), exist_ok=True)
+        except OSError as e:
+            return self.warn(f"No se puede crear la carpeta de configuraciones {configs.configs_dir()}: "
+                             f"{mensajes.explicar(e, 'Comprueba que se puede escribir en el perfil de QGIS')}")
         self.open_in_explorer(configs.configs_dir())
 
+    @protegido('borrar la configuración')
     def delete_current_config(self):
         if not self.configCombo.currentData():
             return self.warn("Elige primero en el desplegable la configuración que quieres borrar")
         nombre = self.configCombo.currentText()
         if self.confirm(f"¿Borrar la configuración «{nombre}»?"):
-            configs.delete_config(nombre)
+            try:
+                configs.delete_config(nombre)
+            except configs.ConfigError as e:
+                self.warn(str(e))
             self.refresh_configs()
 
+    @protegido('cargar la configuración')
     def config_chosen(self, indice):
         ruta = self.configCombo.itemData(indice)
         if not ruta:
@@ -899,7 +992,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return self.warn(str(e))
         self.configCombo.setCurrentIndex(indice)  #apply_config limpia antes el panel (y con él el desplegable)
         if avisos:
-            self.warn("Configuración cargada, pero con estos avisos:\n\n- " + "\n- ".join(avisos))
+            self.warn("Configuración cargada, pero hay cosas que revisar (corrígelas y vuelve a guardarla con 💾):\n\n- "
+                      + "\n- ".join(avisos))
 
     def _checked_items(self):
         """
@@ -993,28 +1087,28 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if configs.strip_credentials(capa.source()) == datos.get('fuente') or capa.source() == datos.get('fuente'):
                 return capa, None
         if datos.get('proveedor') == 'memory':  #Las capas temporales no se guardan en disco: no se pueden volver a abrir
-            return None, f"La capa de la zona «{datos.get('nombre')}» era temporal y ya no está abierta en QGIS"
+            return None, f"La capa de la zona «{datos.get('nombre')}» era temporal y ya no está abierta en QGIS: elige otra capa para la zona"
         capa = QgsVectorLayer(datos.get('fuente', ''), datos.get('nombre') or 'zona', datos.get('proveedor') or 'ogr')
         if not capa.isValid():
-            return None, f"No se encuentra la capa de la zona de trabajo: {datos.get('fuente')}"
+            return None, f"No se encuentra la capa de la zona de trabajo ({datos.get('fuente')}): elige otra capa para la zona"
         QgsProject.instance().addMapLayer(capa)
         return capa, None
 
     def apply_config(self, datos):
         """Rellena el panel con una configuración. Devuelve la lista de avisos (lo que ya no existe)."""
-        avisos = []
+        datos, avisos = configs.normalize(datos if isinstance(datos, dict) else {})
         self.reset_form()
-        capas = datos.get('capas', {})
+        capas = datos['capas']
         for carpeta in capas.get('carpetas', []):
             if os.path.isdir(carpeta):
                 self.add_source_folder(carpeta)
             else:
-                avisos.append(f"Ya no existe la carpeta {carpeta}")
+                avisos.append(f"Ya no existe la carpeta {carpeta}: si se ha movido, añádela de nuevo con +")
         for suelto in capas.get('sueltos', []):  #Lo que se añadió arrastrándolo
             if not os.path.exists(suelto):
-                avisos.append(f"Ya no existe {suelto}")
+                avisos.append(f"Ya no existe {suelto}: si se ha movido, vuelve a arrastrarlo al panel")
             elif self.add_path(suelto) is None:
-                avisos.append(f"No se puede leer {suelto}")
+                avisos.append(f"No se puede leer {suelto}: comprueba que se abre en QGIS")
         elementos = {}  #ruta -> elemento del árbol
 
         def indexar(item):
@@ -1028,7 +1122,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for marcada in capas.get('marcadas', []):
             item = elementos.get(os.path.normcase(marcada.get('ruta') or ''))
             if item is None:
-                avisos.append(f"Ya no existe {marcada.get('ruta')}")
+                avisos.append(f"Ya no existe {marcada.get('ruta')}: si se ha movido, vuelve a marcarla en el árbol")
             elif marcada.get('capas') is None:
                 item.setCheckState(0, Qt.CheckState.Checked)
             else:
@@ -1044,8 +1138,14 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if crs.isValid():
             self.selectProjection.setCrs(crs)
 
-        servicios = datos.get('servicios', {})
-        claves = {svc.Service.from_dict(s).key(): s for s in servicios.get('lista', [])}
+        servicios = datos['servicios']
+        claves = {}
+        for s in servicios['lista']:
+            try:
+                claves[svc.Service.from_dict(s).key()] = s
+            except (TypeError, AttributeError):
+                avisos.append(f"Se ha ignorado un servicio web sin nombre o sin dirección ({s.get('name') or 'sin nombre'}): "
+                              "vuelve a marcarlo en «Servicios web»")
         encontradas = set()
         for item in self._service_leaves():
             clave = svc.Service.from_dict(item.data(0, SERVICE_ROLE)).key()
@@ -1058,7 +1158,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.load_services_tree()
         self.addWMS.setChecked(servicios.get('activo', False))
 
-        zona = datos.get('zona', {})
+        zona = datos['zona']
         self.zoneByLayer.setChecked(zona.get('tipo', 'capa') == 'capa')
         self.zoneByExtent.setChecked(zona.get('tipo') == 'rectangulo')
         if zona.get('capa'):
@@ -1090,7 +1190,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     encontradas |= {capa.id(), fuente, capa.source()}
             for c in abiertas:
                 if c.get('id') not in encontradas and c.get('fuente') not in encontradas:
-                    avisos.append(f"La capa «{c.get('nombre')}» no está en el proyecto abierto en QGIS")
+                    avisos.append(f"La capa «{c.get('nombre')}» no está en el proyecto abierto en QGIS: abre el proyecto que "
+                                  "la tiene o márcala de nuevo")
 
         for bd in datos.get('bases_datos', []):  #Conexiones a bases de datos y sus tablas marcadas
             raiz = self.add_database(bd.get('proveedor'), bd.get('conexion'), avisos=avisos)
@@ -1103,7 +1204,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 if item.data(0, KIND_ROLE) == DB_TABLE and (info['esquema'], info['tabla']) in marcadas:
                     item.setCheckState(0, Qt.CheckState.Checked)
                     encontradas.add((info['esquema'], info['tabla']))
-            avisos += [f"Ya no existe la tabla {'.'.join(p for p in t if p)} en «{bd.get('conexion')}»" for t in marcadas - encontradas]
+            avisos += [f"Ya no existe la tabla {'.'.join(p for p in t if p)} en «{bd.get('conexion')}»: si se ha renombrado, "
+                       "vuelve a marcarla" for t in marcadas - encontradas]
 
         composiciones = [tuple(c) for c in datos.get('composiciones', [])]
         for tipo, valor in composiciones:
@@ -1115,8 +1217,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         disponibles = {tuple(item.data(0, LAYOUT_ROLE)) for item in self._layout_items()}
         for tipo, valor in composiciones:
             if (tipo, valor) not in disponibles:
-                avisos.append(f"No se encuentra la composición «{valor}»" if tipo == 'proyecto'
-                              else f"Ya no existe la plantilla {valor}")
+                avisos.append(f"No se encuentra la composición «{valor}» en el proyecto abierto: abre el proyecto que la tiene "
+                              "o desmárcala" if tipo == 'proyecto'
+                              else f"Ya no existe la plantilla {valor}: si se ha movido, añádela de nuevo")
         self.update_summary()
         return avisos
 
@@ -1145,7 +1248,63 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.zoneExtent.extentChanged.connect(self.schedule_summary)
         self.zoneMargin.setClearValue(0)
         self.zoneByLayer.toggled.connect(self.update_zone_widgets)
+        # Si la capa de la zona se quita de QGIS, el desplegable saltaría solo a OTRA capa de polígonos (y se recortaría
+        # por la zona equivocada sin darse cuenta): se deja vacío y se avisa
+        self.zone_layer_id = None
+        self.zone_layer_name = ''
+        self.zone_previous = None
+        self.zone_removing = False
+        self.zoneLayer.layerChanged.connect(self.remember_zone_layer)
+        self.remember_zone_layer(self.zoneLayer.currentLayer())  #La que ya sale elegida al abrir el panel (sin cambiarla, no avisa)
+        QgsProject.instance().layersWillBeRemoved.connect(self.zone_layer_removed)
         self.update_zone_widgets()
+
+    @protegido('actualizar la zona de trabajo')
+    def remember_zone_layer(self, capa):
+        """
+        Recuerda la capa elegida para la zona. Si hay otras capas de polígonos, el desplegable salta solo a otra capa
+        justo ANTES de que QGIS quite la suya: por eso, al cambiar, se comprueba un instante después si la anterior se ha
+        quitado de QGIS (y entonces no vale la capa a la que ha saltado: se deja vacío y se avisa).
+        """
+        if self.zone_removing:
+            return
+        anterior = (self.zone_layer_id, getattr(self, 'zone_layer_name', ''))
+        self.zone_layer_id = capa.id() if capa is not None else None
+        self.zone_layer_name = capa.name() if capa is not None else ''
+        if anterior[0] and anterior[0] != self.zone_layer_id:
+            self.zone_previous = anterior
+            QTimer.singleShot(0, self._check_zone_previous)
+
+    def _check_zone_previous(self):
+        if sip.isdeleted(self):
+            return
+        anterior, self.zone_previous = getattr(self, 'zone_previous', None), None
+        if anterior and QgsProject.instance().mapLayer(anterior[0]) is None:  #No se cambió: se quitó de QGIS
+            self._zone_layer_gone(anterior[1])
+
+    @protegido('actualizar la zona de trabajo')
+    def zone_layer_removed(self, ids):
+        if sip.isdeleted(self) or self.zone_layer_id is None or self.zone_layer_id not in ids:
+            return
+        self._zone_layer_gone(getattr(self, 'zone_layer_name', ''))
+
+    def _zone_layer_gone(self, nombre):
+        """La capa de la zona se ha quitado de QGIS: el desplegable se deja vacío (no vale otra capa cualquiera) y se avisa."""
+        self.zone_layer_id = None
+        self.zone_layer_name = ''
+        self.zone_removing = True  #Mientras se vacía el desplegable no se recuerda otra capa
+        QTimer.singleShot(0, self._clear_zone_layer)
+        if self.groupZone.isChecked() and self.zoneByLayer.isChecked():
+            self.warn(f"Se ha quitado de QGIS la capa de la zona de trabajo «{nombre}»: elige otra capa en «Zona de trabajo»")
+
+    def _clear_zone_layer(self):
+        """Deja vacío el desplegable de la capa de la zona (después de que QGIS haya quitado la capa)."""
+        if sip.isdeleted(self):
+            return
+        self.zoneLayer.setLayer(None)
+        self.zone_removing = False
+        self.zone_layer_id = None
+        self.schedule_summary()
 
     def schedule_summary(self, *args):
         """
@@ -1155,6 +1314,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if hasattr(self, 'summaryTimer'):
             self.summaryTimer.start()
 
+    @protegido('actualizar la zona de trabajo')
     def update_zone_widgets(self):
         """Activa solo los campos del tipo de zona elegido (capa o rectángulo)."""
         por_capa = self.zoneByLayer.isChecked()
@@ -1178,8 +1338,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if not self.zoneExtent.outputCrs().isValid():
                 raise ZoneError("El rectángulo de la zona no tiene sistema de coordenadas: vuelve a elegirlo")
             geometria, crs = geometry_from_extent(self.zoneExtent.outputExtent(), self.zoneExtent.outputCrs())
-        geometria, crs = apply_margin(geometria, crs, self.zoneMargin.value(), self.selectProjection.crs())
-        return write_zone(geometria, crs), view_extent(geometria, crs, self.selectProjection.crs())
+        try:
+            geometria, crs = apply_margin(geometria, crs, self.zoneMargin.value(), self.selectProjection.crs())
+            extension_inicial = view_extent(geometria, crs, self.selectProjection.crs())
+        except QgsCsException as e:  #Zona en una parte del mundo que el SRC del proyecto no puede representar
+            raise ZoneError(f"La zona de trabajo no se puede pasar al SRC del proyecto ({self.selectProjection.crs().authid()}): "
+                            "comprueba que la zona y el SRC del proyecto son de la misma parte del mundo") from e
+        return write_zone(geometria, crs), extension_inicial
 
     # ------------------------------------------------------------------ Ayuda (V9)
 
@@ -1188,6 +1353,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.helpButton.setIcon(QgsApplication.getThemeIcon('/mActionHelpContents.svg'))  #El botón está en el .ui
         self.helpButton.clicked.connect(self.open_help)
 
+    @protegido('abrir el manual')
     def open_help(self, *args):
         QDesktopServices.openUrl(QUrl(HELP_URL))
 
@@ -1217,6 +1383,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         """Aviso al usuario en la barra del panel. Los avisos largos (con detalles) se quedan hasta cerrarlos."""
         return self.notify(message, Qgis.MessageLevel.Warning, 0 if '\n' in message.strip() else 15)
 
+    @protegido('vaciar el panel')
     def reset_form(self):
         """Vacía el formulario: carpetas, capas marcadas, nombre, destino, WMS y formato. Se mantiene el SRC."""
         self.treeWidget.clear()
@@ -1248,12 +1415,14 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     @staticmethod
     def _last_dir(key):
         """Última carpeta usada en un diálogo (se recuerda entre sesiones de QGIS)."""
-        return QSettings().value(SETTINGS + key, '')
+        valor = QSettings().value(SETTINGS + key, '')
+        return valor if isinstance(valor, str) and os.path.isdir(valor) else ''
 
     @staticmethod
     def _remember_dir(key, folder):
         QSettings().setValue(SETTINGS + key, folder)
 
+    @protegido('elegir la carpeta del proyecto')
     def select_project_folder(self):
         folder = QFileDialog.getExistingDirectory(None, "Selecciona Carpeta", self._last_dir('last_project_dir'),
                                                   QFileDialog.Option.DontResolveSymlinks)
@@ -1261,6 +1430,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self._remember_dir('last_project_dir', folder)
             self.pathFolderProject.setText(folder)
 
+    @protegido('añadir la carpeta')
     def select_layers_folder(self):
         folder = QFileDialog.getExistingDirectory(None, "Añadir carpeta de capas", self._last_dir('last_layers_dir'),
                                                   QFileDialog.Option.DontResolveSymlinks)
@@ -1273,18 +1443,21 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         raices = (self.treeWidget.topLevelItem(i) for i in range(self.treeWidget.topLevelItemCount()))
         return [r.data(0, PATH_ROLE) for r in raices if r.data(0, KIND_ROLE) == FOLDER]
 
+    @protegido('añadir la carpeta')
     def add_source_folder(self, folder):
         """
         Añade una carpeta de capas como nueva raíz del árbol (sin perder lo ya marcado en las demás). Si ya hay en el árbol
         carpetas que están dentro de ella, se integran en la nueva conservando lo marcado.
         """
         if not os.path.isdir(folder):
-            return self.warn(f"La carpeta no existe: {folder}")
+            return self.warn(f"La carpeta {folder} no existe (¿se ha movido, renombrado o es una unidad desconectada?): "
+                             "elígela de nuevo con el botón +")
         ya_estaba = next((r for r in self._roots(FOLDER) if dentro_de(folder, r.data(0, PATH_ROLE))
                           and not r.data(0, PARTIAL_ROLE)), None)
         item = self.add_path(folder)
         if ya_estaba is not None and item is not None:
-            self.warn(f"Esa carpeta ya está en el árbol (dentro de «{ya_estaba.text(0)}»)")
+            self.notify(f"Esa carpeta ya está en el árbol, dentro de «{ya_estaba.text(0)}» (no hace falta añadirla otra vez)",
+                        Qgis.MessageLevel.Info, 6)
         self.apply_filter(self.filterBox.text())  #Si hay una búsqueda escrita, se aplica también a la carpeta nueva
         self.update_summary()
         return item
@@ -1299,8 +1472,15 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         raiz.setData(0, PARTIAL_ROLE, partial)
         if not partial:
             self._add_tree_items(raiz, scan_folder(folder))
+            self._warn_if_truncated(folder)
         raiz.setExpanded(True)
         return raiz
+
+    def _warn_if_truncated(self, folder):
+        """Si la carpeta era enorme y el recorrido se cortó, se explica qué hacer."""
+        if scanner_module.truncated:
+            self.warn(f"La carpeta «{folder}» es muy grande: solo se muestra una parte de su contenido. Añade mejor la "
+                      "carpeta concreta donde están las capas del proyecto (y quita esta con el botón −)")
 
     @staticmethod
     def _key(item):
@@ -1372,6 +1552,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         marcadas = self._leaf_checks([item])
         item.takeChildren()
         self._add_tree_items(item, scan_folder(item.data(0, PATH_ROLE)))
+        self._warn_if_truncated(item.data(0, PATH_ROLE))
         item.setData(0, PARTIAL_ROLE, False)
         if item.parent() is not None:
             item.setData(0, DROPPED_ROLE, True)
@@ -1454,8 +1635,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         avisos, vistas, ultimo = [], set(), None
         for ruta in rutas:
             ruta, capa = ruta if isinstance(ruta, (tuple, list)) else (ruta, None)
-            if not ruta or not os.path.exists(ruta):
-                avisos.append(f"No se encuentra {ruta}")
+            if not ruta or not isinstance(ruta, str) or not os.path.exists(ruta):
+                if ruta:
+                    avisos.append(f"No se encuentra {ruta} (¿se ha movido o borrado?): comprueba que existe y vuelve a arrastrarlo")
                 continue
             minusculas = ruta.lower()
             if minusculas.endswith('.qpt'):
@@ -1475,8 +1657,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 continue
             vistas.add(clave)
             item = self.add_path(principal, check=not os.path.isdir(principal), layer=capa)
-            if item is None:
-                avisos.append(f"{os.path.basename(ruta)} no es una capa que pueda leer QGIS")
+            if item is None and minusculas.endswith('.json'):  #Puede ser una configuración estropeada o una capa rota
+                avisos.append(f"{os.path.basename(ruta)} no es una capa ni una configuración de ProjectBuilder que se pueda "
+                              "leer (está dañado o es de otro programa): si es una configuración, pide que te la exporten de "
+                              "nuevo («Compartir → Exportar la configuración elegida»)")
+            elif item is None:
+                avisos.append(f"{os.path.basename(ruta)} no es una capa que pueda leer QGIS: comprueba que se abre en QGIS "
+                              "(Capa → Añadir capa)")
             else:
                 ultimo = item
         if ultimo is not None:
@@ -1548,6 +1735,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.pending_drops += rutas
         self.dropTimer.start()
 
+    @protegido('añadir lo arrastrado')
     def process_drops(self):
         rutas, self.pending_drops = self.pending_drops, []
         if not rutas or sip.isdeleted(self):
@@ -1558,16 +1746,20 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         finally:
             QApplication.restoreOverrideCursor()
         if avisos:
-            self.warn("No se ha podido añadir todo:\n\n- " + "\n- ".join(avisos))
+            self.warn("No se ha podido añadir todo (lo demás sí). Revisa lo siguiente:\n\n- " + "\n- ".join(avisos))
 
     def eventFilter(self, obj, event):
         """Recuadro de información al pasar el ratón por el árbol de capas (se calcula al momento y se recuerda)."""
-        if event.type() == QEvent.Type.ToolTip and not sip.isdeleted(self) and obj == self.treeWidget.viewport():
-            item = self.treeWidget.itemAt(event.pos())
-            texto = self.item_info(item) if item is not None else DROP_HINT
-            if texto:
-                QToolTip.showText(event.globalPos(), texto, obj)
-                return True
+        try:
+            if event.type() == QEvent.Type.ToolTip and not sip.isdeleted(self) and obj == self.treeWidget.viewport():
+                item = self.treeWidget.itemAt(event.pos())
+                texto = self.item_info(item) if item is not None else DROP_HINT
+                if texto:
+                    QToolTip.showText(event.globalPos(), texto, obj)
+                    return True
+        except Exception:  # noqa: BLE001 (sin recuadro de información antes que una ventana de error al mover el ratón)
+            ERRORES_INESPERADOS.append(traceback.format_exc())
+            QgsMessageLog.logMessage(traceback.format_exc(), 'ProjectBuilder', Qgis.MessageLevel.Warning)
         return super().eventFilter(obj, event)
 
     def item_info(self, item):
@@ -1612,6 +1804,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return [QgsVectorLayer(datos['uri'], datos['tabla'], datos['proveedor'])]
         return []
 
+    @protegido('ver la capa en el mapa')
     def show_on_map(self, item, *args):
         """«Ver en el mapa»: lleva el mapa de QGIS a la capa y hace parpadear su extensión en rojo."""
         lienzo = self.iface.mapCanvas()
@@ -1628,7 +1821,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         finally:
             QApplication.restoreOverrideCursor()
         if rectangulo is None:
-            return self.warn(f"«{item.text(0)}» no se puede abrir o no tiene elementos: no hay nada que ver en el mapa")
+            return self.warn(f"«{item.text(0)}» no se puede abrir o no tiene elementos, así que no hay nada que ver en el mapa: "
+                             "comprueba que el fichero sigue en su sitio y se abre en QGIS")
         if rectangulo.isEmpty():  #Un solo punto: se centra el mapa en él, sin cambiar la escala
             lienzo.setCenter(rectangulo.center())
         else:
@@ -1639,14 +1833,19 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         lienzo.flashGeometries([QgsGeometry.fromRect(rectangulo)], destino, QColor(220, 0, 0, 255), QColor(220, 0, 0, 0), 4, 400)
         self.last_map_extent = rectangulo  #Para las pruebas
 
+    @protegido('ver la capa en el mapa')
     def tree_double_clicked(self, item, columna=0):
         """Doble clic en una capa: «Ver en el mapa» (en carpetas y GeoPackages, el doble clic solo despliega)."""
         if item is not None and item.childCount() == 0 and item.data(0, KIND_ROLE) in MAP_KINDS:
             self.show_on_map(item)
 
+    @protegido('abrir la carpeta')
     def open_in_explorer(self, ruta, *args):
+        if not os.path.exists(ruta):
+            return self.warn(f"La carpeta {ruta} ya no existe (¿se ha movido o borrado?): comprueba que la unidad está conectada")
         QDesktopServices.openUrl(QUrl.fromLocalFile(ruta))
 
+    @protegido('quitar la carpeta')
     def remove_root_of(self, item, *args):
         if sip.isdeleted(item):
             return
@@ -1676,12 +1875,14 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                            partial(self.remove_root_of, raiz))
         return menu
 
+    @protegido('mostrar el menú')
     def show_tree_menu(self, posicion):
         menu = self.tree_menu(self.treeWidget.itemAt(posicion))
         if not menu.isEmpty():
             menu.exec(self.treeWidget.viewport().mapToGlobal(posicion))
         menu.deleteLater()
 
+    @protegido('quitar la carpeta')
     def remove_current_folder(self):
         """Quita del árbol la carpeta de capas a la que pertenece el elemento en el que se ha hecho clic."""
         item = self.treeWidget.currentItem()
@@ -1772,6 +1973,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return None
         return buscar(self.treeWidget.invisibleRootItem()) or []
 
+    @protegido('actualizar el resumen')
     def update_summary(self):
         """Texto bajo el formulario con lo que se va a generar, p. ej. '7 capas · 2 WMS · un solo GeoPackage → ...qgz'."""
         capas = self.count_layers()
@@ -1797,6 +1999,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             texto += f"  →  {os.path.join(carpeta, nombre + '.qgz')}"
         self.summaryLabel.setText(texto)
 
+    @protegido('buscar en el árbol')
     def apply_filter(self, texto):
         """Muestra solo los elementos cuyo nombre contiene el texto (y las carpetas que los contienen)."""
         texto = normalizar(texto.strip())
@@ -1866,13 +2069,17 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                                                   "Úsalo en proyectos de una zona concreta.")
         return item
 
+    @protegido('cargar los servicios web')
     def load_services_tree(self):
         """Rellena el árbol de servicios: ★ Favoritos, Mis conexiones de QGIS y Catálogo ProjectBuilder."""
         self.health = svc.load_health(svc.health_path())  #Resultado de la última comprobación automática
         marcadas = {s.key() for s in self.selected_services()} if self.servicesTree.topLevelItemCount() else set()
         self.servicesTree.clear()
+        descartados = []
         try:
-            self.favorites = svc.load_favorites(svc.favorites_path())
+            self.favorites = svc.load_favorites(svc.favorites_path(), descartados)
+            if descartados:
+                self._discard_favorites(len(descartados))
         except svc.ServicesError as e:
             self.favorites = []
             copia = svc.favorites_path() + '.estropeado'
@@ -1923,6 +2130,21 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self._mark_favorites()
         self.apply_services_filter(self.servicesFilter.text())
 
+    def _discard_favorites(self, cuantos):
+        """Favoritos dañados (sin nombre o sin dirección): se quitan, guardando antes una copia del fichero."""
+        copia = svc.favorites_path() + '.estropeado'
+        try:
+            shutil.copy2(svc.favorites_path(), copia)
+            svc.save_favorites(self.favorites, svc.favorites_path())
+            donde = f" Hay una copia del fichero anterior en {copia}."
+        except (OSError, svc.ServicesError):
+            donde = ""
+        varios = cuantos != 1
+        self.notify(f"{cuantos} favorito{'s' if varios else ''} estaba{'n' if varios else ''} dañado{'s' if varios else ''} "
+                    f"(sin nombre o sin dirección) y se ha{'n' if varios else ''} quitado de ★ Favoritos.{donde} "
+                    "Si los necesitas, vuelve a añadirlos con ★", Qgis.MessageLevel.Warning, 15)
+
+    @protegido('pedir las capas del servicio')
     def load_service_layers(self, item):
         """Al desplegar un servicio, se piden sus capas al servidor (GetCapabilities) sin bloquear QGIS."""
         if item.data(0, NODE_ROLE) != 'servicio' or item.childCount():
@@ -1937,6 +2159,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.pending[id(respuesta)] = respuesta
         respuesta.finished.connect(lambda: self._service_layers_received(item, servicio, respuesta))
 
+    @protegido('leer las capas del servicio')
     def _service_layers_received(self, item, servicio, respuesta):
         if sip.isdeleted(self):  #La respuesta llega tarde y el panel ya se ha cerrado
             return
@@ -1951,7 +2174,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return
         try:
             if error:
-                raise ValueError(f"No responde: {error}")
+                raise ValueError(f"No se pueden ver sus capas: {mensajes.explicar(error, 'Prueba más tarde o revisa la dirección de la conexión')}")
             tipo = detect_type(datos, servicio.type)  #Una conexión "WMS" de QGIS puede ser un WMTS
             capas = parse_capabilities(datos, tipo)
         except ValueError as e:
@@ -1963,10 +2186,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                                crs_list=capa['crs'])
             self._add_service_node(item, hija)
         if not capas:
-            self._node(item, "El servicio no ofrece capas", 'aviso').setDisabled(True)
+            self._node(item, "El servicio no ofrece capas: revisa la dirección de la conexión", 'aviso').setDisabled(True)
         self._mark_favorites()
         self.apply_services_filter(self.servicesFilter.text())
 
+    @protegido('comprobar los servicios web')
     def start_health_check(self, force=False):
         """
         Comprueba en segundo plano el catálogo y los favoritos (como mucho una vez por semana, o al pulsar ⟳)
@@ -1983,6 +2207,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.health_task.taskTerminated.connect(lambda: setattr(self, 'health_task', None))
         QgsApplication.taskManager().addTask(self.health_task)
 
+    @protegido('guardar la comprobación de los servicios')
     def _health_finished(self):
         if sip.isdeleted(self):  #La revisión termina cuando el panel ya se ha cerrado: no hay nada que actualizar
             return
@@ -2004,7 +2229,9 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             pass
         caidos = [f.name for f in self.favorites if not task.resultados.get(f.key(), {}).get('ok', True)]
         if caidos:
-            self.notify("Favoritos que no responden ahora mismo: " + ", ".join(caidos), Qgis.MessageLevel.Warning, 15)
+            self.notify("Favoritos que no responden ahora mismo: " + ", ".join(caidos) + ". Se han desactivado (⛔) hasta la "
+                        "próxima comprobación: no hace falta hacer nada, o pulsa ⟳ en «Servicios web» para comprobarlos ya",
+                        Qgis.MessageLevel.Warning, 15)
         if avisos:
             self.notify(" · ".join(avisos), Qgis.MessageLevel.Info, 10)
         self.load_services_tree()
@@ -2031,6 +2258,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     servicios.append(servicio)
         return servicios
 
+    @protegido('cambiar los favoritos')
     def toggle_favorite(self):
         """Añade a Favoritos (o quita) la capa en la que se ha hecho clic. Se guarda en el perfil de QGIS."""
         item = self.servicesTree.currentItem()
@@ -2042,7 +2270,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.favorites.pop(claves.index(servicio.key()))
         else:
             self.favorites.append(servicio)
-        svc.save_favorites(self.favorites, svc.favorites_path())
+        try:
+            svc.save_favorites(self.favorites, svc.favorites_path())
+        except svc.ServicesError as e:
+            return self.warn(str(e))
         self.load_services_tree()
 
     def _mark_favorites(self):
@@ -2053,6 +2284,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             fuente.setBold(svc.Service.from_dict(item.data(0, SERVICE_ROLE)).key() in claves)
             item.setFont(0, fuente)
 
+    @protegido('marcar los favoritos')
     def apply_favorites_default(self):
         """Si está activada la opción, se marcan los favoritos (y la sección de servicios) al empezar un proyecto."""
         if not (self.favoritesDefault.isChecked() and self.favorites):
@@ -2062,6 +2294,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for item in self._service_leaves(raiz):
             item.setCheckState(0, Qt.CheckState.Checked)
 
+    @protegido('buscar servicios')
     def apply_services_filter(self, texto):
         """Muestra solo los servicios y capas cuyo nombre contiene el texto."""
         texto = normalizar(texto.strip())
@@ -2083,24 +2316,51 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     # ------------------------------------------------------------------ Crear proyecto
 
     def validate(self):
-        """Comprueba los datos del formulario. Devuelve un mensaje de error o None si todo está bien."""
+        """
+        Comprueba los datos del formulario ANTES de empezar (así no se espera a la exportación para descubrir un problema).
+        Devuelve el mensaje para el usuario (qué pasa y qué hacer) o None si todo está bien.
+        """
         name = self.nameProject.text().strip()
-        folder_project = self.pathFolderProject.text()
+        folder_project = self._clean_folder_text()
         if not name:
-            return "No se ha introducido un nombre para el proyecto"
-        if open_project.safe_name(name) != name or name.endswith(('.qgz', '.qgs')):
-            return ("El nombre del proyecto no puede llevar estos caracteres: \\ / : * ? \" < > |, ni ser un nombre reservado "
-                    "de Windows (CON, NUL, AUX...). Escribe solo el nombre, sin la extensión .qgz")
-        if not folder_project.strip():
-            return "No se ha indicado la carpeta del proyecto"
-        if not os.path.isabs(folder_project):
+            return "Falta el nombre del proyecto: escríbelo en «Nombre del proyecto»"
+        if open_project.safe_name(name) != name or name.lower().endswith(('.qgz', '.qgs')):
+            return ("El nombre del proyecto no puede llevar estos caracteres: \\ / : * ? \" < > |, ni acabar en punto, ni ser un "
+                    "nombre reservado de Windows (CON, NUL, AUX...). Escribe otro nombre, sin la extensión .qgz")
+        if not folder_project:
+            return "Falta la carpeta del proyecto: elígela con el botón «…»"
+        if not os.path.isabs(folder_project) or (os.name == 'nt' and not os.path.splitdrive(folder_project)[0]):
             return "Indica la carpeta del proyecto completa (por ejemplo C:\\Proyectos\\Urbanismo), con el botón «…»"
+        unidad = os.path.splitdrive(folder_project)[0]
+        if unidad and len(unidad) == 2 and not os.path.exists(unidad + os.sep):
+            return f"La unidad {unidad} no existe o no está conectada: conéctala o elige otra carpeta con el botón «…»"
         if os.path.exists(folder_project) and not os.path.isdir(folder_project):
-            return "La ruta del proyecto es un fichero, no una carpeta"
+            return "La ruta del proyecto es un fichero, no una carpeta: elige una carpeta con el botón «…»"
+        ruta_larga = os.path.join(folder_project, name + '.gpkg')
+        if len(ruta_larga) > MAX_PATH_LENGTH:
+            return (f"La ruta del proyecto es demasiado larga ({len(ruta_larga)} caracteres) y Windows no podría guardar algunas "
+                    "capas: usa una carpeta con una ruta más corta (p. ej. C:\\Proyectos) o un nombre más corto")
+        if os.path.isdir(os.path.join(folder_project, name + '.qgz')):
+            return (f"En la carpeta del proyecto hay una carpeta llamada «{name}.qgz»: cambia el nombre del proyecto o elige "
+                    "otra carpeta")
+        if not self.selectProjection.crs().isValid():
+            return "Falta el SRC del proyecto: elígelo en «Sistema de Referencia de Coordenadas (SRC) del proyecto»"
         if self.addWMS.isChecked() and not self.selected_services():
-            return "No has marcado ningún servicio web (o desmarca la sección 2)"
-        if not (self.selected_sources() or self.selected_project_layers() or self.selected_db_tables() or self.addWMS.isChecked()):  #Hace falta al menos una capa o un servicio WMS
-            return "No se ha marcado ninguna capa ni ningún servicio web"
+            return "No has marcado ningún servicio web: márcalos en la sección de servicios web o desmarca esa sección"
+        if not (self.selected_sources() or self.selected_project_layers() or self.selected_db_tables() or self.addWMS.isChecked()):
+            return "No has marcado ninguna capa ni ningún servicio web: marca en el árbol las capas que quieres en el proyecto"
+        sin_guardar = self._unsaved_layers()
+        if sin_guardar:
+            return ("Hay capas en edición con cambios sin guardar, que no entrarían en el proyecto: "
+                    f"{', '.join('«' + n + '»' for n in sin_guardar)}. Guarda los cambios (botón «Guardar cambios de la capa» "
+                    "de la barra de edición) o descártalos, y vuelve a pulsar «Crear proyecto»")
+        # Capas marcadas que ya no están (se han movido, renombrado o borrado después de añadirlas)
+        faltan = [path for _, path, _ in self.selected_sources() if not os.path.exists(path)]
+        faltan += [f"«{capa.name()}» (del proyecto abierto)" for _, capa in self.selected_project_layers() if not capa.isValid()]
+        if faltan:
+            lista = "\n- ".join(faltan[:15]) + ("\n- …" if len(faltan) > 15 else "")
+            return ("Algunas capas marcadas ya no están en su sitio (¿se han movido, renombrado o borrado?): desmárcalas o "
+                    f"vuelve a añadir su carpeta con +.\n- {lista}")
         # Evitar sobrescribir los datos de origen: el proyecto no puede estar en ninguna carpeta de capas ni dentro de ella
         for _, capa in self.selected_project_layers():  #Tampoco puede sobrescribir los ficheros de las capas del proyecto abierto
             fichero = open_project.file_path(capa)
@@ -2110,14 +2370,67 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             carpeta = raiz.data(0, PATH_ROLE)
             if not raiz.data(0, PARTIAL_ROLE):
                 if dentro_de(folder_project, carpeta):
-                    return f"La carpeta del proyecto no puede ser una carpeta de capas ni estar dentro de ella:\n{carpeta}"
+                    return ("La carpeta del proyecto no puede ser una carpeta de capas ni estar dentro de ella (se podrían "
+                            f"sobrescribir tus datos): elige otra carpeta.\n{carpeta}")
                 if dentro_de(carpeta, folder_project):  #El destino contiene una carpeta de capas: se podrían sobrescribir sus ficheros
                     return (f"La carpeta del proyecto contiene una carpeta de capas ({carpeta}).\n"
                             "Elige una carpeta vacía y propia para el proyecto, fuera de las carpetas de origen")
                 continue
             for ruta in self._partial_paths(raiz):  #De una carpeta arrastrada a medias solo cuenta lo que se ve de ella
                 if dentro_de(ruta, folder_project) or (os.path.isdir(ruta) and dentro_de(folder_project, ruta)):
-                    return f"La carpeta del proyecto no puede contener las capas de origen ni estar dentro de ellas:\n{ruta}"
+                    return ("La carpeta del proyecto no puede contener las capas de origen ni estar dentro de ellas (se podrían "
+                            f"sobrescribir tus datos): elige otra carpeta.\n{ruta}")
+        return self._check_writable(folder_project)
+
+    def _clean_folder_text(self):
+        """
+        Carpeta del proyecto tal como la escribiría el usuario, limpia: sin espacios alrededor ni las comillas que añade
+        «Copiar como ruta de acceso» del Explorador de Windows ("C:\\Proyectos\\Urbanismo"). Se corrige también en el panel.
+        """
+        texto = self.pathFolderProject.text()
+        limpio = texto.strip()
+        while len(limpio) >= 2 and limpio[0] == limpio[-1] and limpio[0] in '"\'':
+            limpio = limpio[1:-1].strip()
+        limpio = limpio.strip('"').strip()  #Comillas sueltas (copiadas a medias)
+        if limpio != texto:
+            self.pathFolderProject.setText(limpio)
+        return limpio
+
+    def _unsaved_layers(self):
+        """
+        Nombres de las capas abiertas en QGIS con cambios sin guardar que entrarían en el proyecto (marcadas como capas del
+        proyecto abierto, o su fichero marcado desde una carpeta): se copiaría lo guardado en disco, sin esos cambios.
+        """
+        modificadas = [c for c in QgsProject.instance().mapLayers().values()
+                       if isinstance(c, QgsVectorLayer) and c.isEditable() and c.isModified()]
+        if not modificadas:  #Lo normal: no hace falta revisar lo marcado
+            return []
+        ids = {capa.id() for _, capa in self.selected_project_layers()}
+        rutas = [path for _, path, _ in self.selected_sources()]  #Ficheros, o carpetas marcadas enteras
+        nombres = []
+        for capa in modificadas:
+            fichero = open_project.file_path(capa)
+            if capa.id() in ids or (fichero and any(dentro_de(fichero, r) for r in rutas)):
+                nombres.append(capa.name())
+        return nombres
+
+    @staticmethod
+    def _check_writable(folder_project):
+        """Se comprueba que se puede escribir en la carpeta (o en la más cercana que ya exista). Mensaje o None."""
+        existente = folder_project
+        while not os.path.exists(existente):
+            superior = os.path.dirname(existente)
+            if superior == existente:  #Ni siquiera existe la raíz (unidad o carpeta de red que no responde)
+                return (f"No se puede llegar a {folder_project}: comprueba que la unidad o la carpeta de red está "
+                        "conectada, o elige otra carpeta con el botón «…»")
+            existente = superior
+        prueba = os.path.join(existente, f".projectbuilder_prueba_{os.getpid()}_{time.monotonic_ns()}")
+        try:  #Un solo intento (tempfile, en Windows, reintenta miles de veces si la carpeta tiene el permiso denegado)
+            descriptor = os.open(prueba, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(descriptor)
+            os.remove(prueba)
+        except OSError as e:
+            return f"No se puede escribir en la carpeta {existente}: {mensajes.explicar(e, 'Elige otra carpeta')}"
         return None
 
     def _partial_paths(self, raiz):
@@ -2204,19 +2517,20 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         return (jobs + self.build_project_jobs(folder_project, gpkg, mode, tablas_usadas, rutas_usadas)
                 + self.build_db_jobs(folder_project, gpkg, mode, tablas_usadas, rutas_usadas))
 
+    @protegido('crear el proyecto')
     def create_project(self, background=True):
         """
         Lanza la creación del proyecto. Las capas se exportan en segundo plano (QgsTask)
         y, al terminar, se construye y guarda el proyecto en finish_project().
         background=False ejecuta todo seguido (lo usa tests/smoke_test.py).
         """
+        if self.task is not None:  #Lo primero: con un proyecto en marcha no se valida ni se borra ningún aviso
+            return self.warn("Ya se está creando un proyecto: espera a que termine (o cancélalo abajo a la derecha)")
         if hasattr(self, 'messageBar'):
             self.messageBar.clearWidgets()  #Los avisos de antes ya no valen
         error = self.validate()
         if error:
             return self.warn(error)
-        if self.task is not None:
-            return self.warn("Ya se está creando un proyecto: espera a que termine (o cancélalo abajo a la derecha)")
         self.started = time.monotonic()
         self.started_clock = time.time()  #Para medir solo los ficheros que escribe este proyecto
 
@@ -2230,7 +2544,8 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         except (ZoneError, layouts.LayoutError) as e:
             return self.warn(str(e))
         except OSError as e:
-            return self.warn(f"No se pudo preparar la carpeta del proyecto:\n{folder_project}\n\n{e}")
+            return self.warn(f"No se pudo preparar la carpeta del proyecto {folder_project}: "
+                             f"{mensajes.explicar(e, 'Elige otra carpeta con el botón «…»')}")
         # Solo cuando todo está comprobado se borra el GeoPackage de un proyecto anterior con el mismo nombre
         gpkg = os.path.join(folder_project, name + '.gpkg')
         if self.outputFormat.currentData() == SINGLE and os.path.exists(gpkg):
@@ -2255,9 +2570,11 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         else:
             self.finish_project(self.task.run())
 
+    @protegido('terminar el proyecto')
     def task_completed(self, *args):
         self.finish_project(True)
 
+    @protegido('terminar el proyecto')
     def task_terminated(self, *args):
         self.finish_project(False)
 
@@ -2280,11 +2597,15 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if task is None:
             return
         if not completed:
-            return self.notify("Creación del proyecto cancelada", Qgis.MessageLevel.Warning, 5)
+            return self.notify("Creación del proyecto cancelada: no se ha guardado el proyecto. Cuando quieras, pulsa "
+                               "«Crear proyecto» para empezar de nuevo (lo que ya se había copiado se sustituirá)",
+                               Qgis.MessageLevel.Warning, 10)
         try:
             self._finish(task)
         except Exception as e:  # noqa: BLE001 (lo que sea: se avisa en el panel, sin ventana de error de Python)
-            self.warn(f"No se pudo terminar el proyecto: {e}")
+            ERRORES_INESPERADOS.append(traceback.format_exc())
+            QgsMessageLog.logMessage(traceback.format_exc(), 'ProjectBuilder', Qgis.MessageLevel.Critical)
+            self.warn(f"No se pudo terminar el proyecto: {mensajes.explicar(e, 'Vuelve a crearlo')}")
 
     def _finish(self, task):
         """Construye y guarda el proyecto con lo exportado (con los datos del formulario del momento de pulsar Crear)."""
@@ -2300,7 +2621,7 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             try:
                 if output.tables:  #Tablas del GeoPackage común
                     capas = qgis_project.add_geopackage_tables(project, output.path, output.tables, output.group, output.qml,
-                                                               output.styles)
+                                                               output.styles, output.name)
                 else:
                     capas = qgis_project.add_layer(project, output.path, output.group, output.qml, output.name, output.styles)
                 anadidas += capas
@@ -2335,12 +2656,13 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             cambiadas, faltan = icons.localize(project, carpeta, search_dirs=buscar_en)
         except Exception as e:  # noqa: BLE001 (sin iconos el proyecto se guarda igual)
             cambiadas, faltan = [], []
-            errors.append(f"No se pudieron copiar los iconos de los estilos: {e}")
+            errors.append(f"No se pudieron copiar los iconos de los estilos: {mensajes.explicar(e, 'Cópialos a mano a la carpeta «iconos» del proyecto')}")
         gpkg_comun = os.path.normcase(os.path.abspath(os.path.join(carpeta, nombre + '.gpkg')))
         for capa in cambiadas:  #El estilo guardado dentro del GeoPackage común también apunta ya a los iconos copiados
             if os.path.normcase(os.path.abspath(capa.source().split('|')[0])) == gpkg_comun:
                 qgis_project.save_style_in_geopackage(capa)
-        errors += [f"No se encuentra el icono {icono} (capa {capa})" for capa, icono in faltan]
+        errors += [f"No se encuentra el icono {icono} (capa {capa}): cópialo a la carpeta «iconos» del proyecto y vuelve a "
+                   "elegirlo en el estilo de la capa" for capa, icono in faltan]
 
         if getattr(self, 'zone_extent', None) is not None:
             qgis_project.set_view_extent(project, self.zone_extent)  #Al abrirlo se ve la zona (y los WFS solo piden esa zona)
@@ -2353,7 +2675,16 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 try:
                     layouts.add_layout(project, plantilla, nombre_composicion, extension)
                 except Exception as e:  # noqa: BLE001 (una plantilla rara no impide guardar el proyecto)
-                    errors.append(str(e) if isinstance(e, layouts.LayoutError) else f"Composición {nombre_composicion}: {e}")
+                    errors.append(str(e) if isinstance(e, layouts.LayoutError) else
+                                  f"No se pudo añadir la composición {nombre_composicion or os.path.basename(plantilla)}: "
+                                  f"{mensajes.explicar(e, 'Añádela después desde QGIS')}")
+            try:  #Logos e imágenes de las composiciones: también viajan con el proyecto
+                faltan_imagenes = icons.localize_layout_pictures(project, carpeta)
+            except Exception as e:  # noqa: BLE001
+                faltan_imagenes = []
+                errors.append(f"No se pudieron copiar las imágenes de las composiciones: {mensajes.explicar(e, 'Cópialas a mano a la carpeta «iconos» del proyecto')}")
+            errors += [f"No se encuentra la imagen {imagen} de la composición «{composicion}»: cópiala a la carpeta «iconos» "
+                       "del proyecto y vuelve a elegirla en la composición" for composicion, imagen in faltan_imagenes]
         try:
             path_file = qgis_project.save_project(project)
         except OSError as e:
@@ -2417,13 +2748,29 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.iface.messageBar().pushMessage("ProjectBuilder", partes[0] + " (detalles en el panel)",
                                             level=Qgis.MessageLevel.Warning if errors else Qgis.MessageLevel.Success, duration=6)
 
+    def _created_exists(self):
+        """True si el último proyecto creado sigue en su sitio; si no, se avisa."""
+        datos = getattr(self, 'last_result', None)
+        if not datos:
+            self.warn("Todavía no se ha creado ningún proyecto: rellena el panel y pulsa «Crear proyecto»")
+            return False
+        if not os.path.isfile(datos['proyecto']):
+            self.warn(f"El proyecto {datos['proyecto']} ya no está ahí (¿se ha movido o borrado?): búscalo en su carpeta o "
+                      "vuelve a crearlo")
+            return False
+        return True
+
+    @protegido('abrir el proyecto creado')
     def open_created_project(self, *args):
-        if getattr(self, 'last_result', None):
+        if self._created_exists():
             self.iface.addProject(self.last_result['proyecto'])  #QGIS pregunta antes si hay que guardar el proyecto actual
 
+    @protegido('abrir la carpeta del proyecto')
     def open_created_folder(self, *args):
         if getattr(self, 'last_result', None):
             self.open_in_explorer(os.path.dirname(self.last_result['proyecto']))
+        else:
+            self.warn("Todavía no se ha creado ningún proyecto: rellena el panel y pulsa «Crear proyecto»")
 
     def _final_rows(self, project):
         """Filas del informe final: cada capa del proyecto creado, con su grupo."""
@@ -2469,7 +2816,10 @@ class ProjectBuilderDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         nombre = os.path.splitext(os.path.basename(datos['proyecto']))[0]
         return stats.report_html(f"Proyecto creado · {nombre}", cabecera, filas, datos['vacias'], datos['problemas']), filas
 
+    @protegido('mostrar el informe')
     def show_final_report(self, *args):
+        if not self._created_exists():
+            return
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  #Se miden las capas: con capas grandes tarda un poco
         try:
             contenido, filas = self.final_report()

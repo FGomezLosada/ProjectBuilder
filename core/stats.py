@@ -216,7 +216,8 @@ def save_pdf(contenido, path):
     imprimir = getattr(documento, 'print', None) or documento.print_  #Qt6: print · Qt5: print_
     imprimir(impresora)
     if not os.path.isfile(path):
-        raise OSError(f"No se pudo crear {path}")
+        raise OSError(f"No se pudo crear {path}: comprueba que la carpeta existe, que se puede escribir en ella y que el PDF "
+                      "no está abierto")
 
 
 def save_report(path, contenido, filas):

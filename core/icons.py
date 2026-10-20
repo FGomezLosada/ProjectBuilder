@@ -167,3 +167,40 @@ def localize(project, project_folder, layers=None, search_dirs=None):
             capa.triggerRepaint()
             cambiadas.append(capa)
     return cambiadas, sorted(set(faltan))
+
+
+def localize_layout_pictures(project, project_folder):
+    """
+    Copia a <project_folder>/iconos/ las imágenes (logos, escudos...) de las composiciones del proyecto y hace que apunten
+    a la copia: así el proyecto se puede llevar a otro ordenador con sus logos. Devuelve [(composición, imagen que falta)].
+    """
+    from qgis.core import QgsLayoutItemPicture
+    carpeta = os.path.join(project_folder, ICONS_FOLDER)
+    internas = _builtin_dirs()
+    copiados, faltan = {}, []
+    for composicion in project.layoutManager().printLayouts():
+        for elemento in composicion.items():
+            if not isinstance(elemento, QgsLayoutItemPicture):
+                continue
+            ruta = elemento.picturePath()
+            if not ruta or ruta.startswith(('base64:', 'http://', 'https://', ':/')):
+                continue
+            if not os.path.isfile(ruta):
+                faltan.append((composicion.name(), os.path.basename(ruta.replace('\\', '/'))))
+                continue
+            origen = os.path.abspath(ruta)
+            if any(os.path.normcase(origen).startswith(d + os.sep) for d in internas):
+                continue  #Imagen de serie de QGIS (flechas del norte...)
+            clave = os.path.normcase(origen)
+            if clave not in copiados:
+                try:
+                    os.makedirs(carpeta, exist_ok=True)
+                    destino = _unique_target(carpeta, origen, copiados)
+                    if not os.path.exists(destino):
+                        shutil.copy2(origen, destino)
+                except OSError:
+                    faltan.append((composicion.name(), os.path.basename(origen)))
+                    continue
+                copiados[clave] = destino
+            elemento.setPicturePath(copiados[clave].replace('\\', '/'))
+    return sorted(set(faltan))

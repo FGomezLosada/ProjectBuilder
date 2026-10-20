@@ -186,7 +186,8 @@ checks = {
     "[capa] vectoriales dentro de la zona": bool(vect2) and all(_xmax(lyr) <= xmax_zona2 + 1e-6 for lyr in vect2),
     "[conservar] shapefile recortado": shp3.isValid() and _xmax(shp3) <= OESTE + 1e-6,
     "[conservar] sin capa de zona si no se pide": 'zona_trabajo' not in c3 and not os.path.exists(f"{tmp3}/zona_trabajo.gpkg"),
-    "[error] avisa si no hay elementos seleccionados": aviso_sel == ["No hay elementos seleccionados en la capa de la zona"],
+    "[error] avisa si no hay elementos seleccionados": len(aviso_sel) == 1
+        and aviso_sel[0].startswith("No hay elementos seleccionados en la capa de la zona"),
 }
 
 paso("checks calculados")

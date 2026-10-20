@@ -288,9 +288,17 @@ def _():
 
 @prueba("favoritos.json estropeado (lista, ANSI, sin nombre) no rompe el panel")
 def _():
-    casos = [b'[1, 2, 3]', 'Señal'.encode('latin-1'), b'{"favoritos": [{"url": "http://x"}]}', b'{"favoritos": 5}']
+    casos = [b'[1, 2, 3]', 'Señal'.encode('latin-1'), b'{"favoritos": 5}']
     ok, fallidos = True, []
     try:
+        # Un favorito sin nombre no estropea los demás: se descarta (y el panel avisa), sin error
+        with open(svc_module.favorites_path(), 'wb') as f:
+            f.write(b'{"favoritos": [{"url": "http://x"}, {"name": "Bueno", "url": "http://y"}]}')
+        descartados = []
+        buenos = svc_module.load_favorites(svc_module.favorites_path(), descartados)
+        if [s.name for s in buenos] != ['Bueno'] or len(descartados) != 1:
+            ok = False
+            fallidos.append('favorito sin nombre')
         for contenido in casos:
             with open(svc_module.favorites_path(), 'wb') as f:
                 f.write(contenido)

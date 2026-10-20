@@ -11,12 +11,16 @@ from qgis.core import (
     QgsDataSourceUri,
     QgsProcessingUtils,
     QgsProject,
+    QgsProviderRegistry,
     QgsRasterLayer,
     QgsVectorLayer,
 )
 
 from .clip import zone_uri
 from .formats import GEOTIFF_OPTIONS, RASTER_EXTENSIONS, extension, style_path, vector_sublayers
+from .mensajes import explicar
+
+REVISAR_CAPA = "Comprueba que la capa se abre bien en QGIS"  #Qué hacer si una capa no se puede exportar
 
 
 class ExportError(Exception):
@@ -36,10 +40,40 @@ def _same_file(a, b):
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
+def _run(algoritmo, parametros, feedback=None):
+    """
+    processing.run con lo que se escribe siempre en UTF-8. Sin esto, Processing escribe los shapefiles (y otros
+    formatos con .dbf) en la codificación del sistema y las tildes y eñes se estropean al abrirlos.
+    """
+    from processing.tools import dataobjects
+    contexto = dataobjects.createContext(feedback)
+    contexto.setDefaultEncoding('UTF-8')
+    return processing.run(algoritmo, parametros, context=contexto, feedback=feedback)
+
+
 def _check_not_source(path_source, path_target):
     """Nunca se escribe encima de los datos de origen (protección final, además de la del panel)."""
     if _same_file(path_source.split('|')[0], path_target):
-        raise ExportError(f"No se exporta {os.path.basename(path_target)}: el destino es el propio fichero de origen")
+        raise ExportError(f"No se exporta {os.path.basename(path_target)}: el destino es el propio fichero de origen. "
+                          "Elige otra carpeta para el proyecto")
+
+
+def _check_source(path_source):
+    """La capa de origen tiene que existir y poder abrirse; si no, se explica antes de llamar a Processing."""
+    fichero = path_source.split('|')[0]
+    nombre = os.path.basename(fichero)
+    if not os.path.exists(fichero):
+        raise ExportError(f"{nombre} ya no está en {os.path.dirname(fichero)} (¿se ha movido, renombrado o borrado?): "
+                          "vuelve a añadir su carpeta o desmárcala")
+    try:
+        valida = bool(QgsProviderRegistry.instance().querySublayers(fichero))  #Cualquier tipo de capa (vectorial o ráster)
+    except Exception:  # noqa: BLE001
+        valida = False
+    if not valida and extension(fichero) in RASTER_EXTENSIONS:
+        valida = QgsRasterLayer(fichero, 'origen').isValid()
+    if not valida:
+        raise ExportError(f"{nombre} está dañado o no es una capa que QGIS pueda abrir: comprueba que se abre en QGIS "
+                          "o desmárcalo")
 
 
 def _note(notes, mensaje):
@@ -72,10 +106,10 @@ def _clip_to(entrada, zone, feedback):
     """
     try:
         salida = QgsProcessingUtils.generateTempFilename('recorte.gpkg')
-        processing.run("native:clip", {'INPUT': entrada, 'OVERLAY': zone_uri(zone), 'OUTPUT': salida}, feedback=feedback)
+        _run("native:clip", {'INPUT': entrada, 'OVERLAY': zone_uri(zone), 'OUTPUT': salida}, feedback=feedback)
         return salida
     except Exception:  # noqa: BLE001
-        return processing.run("native:clip", {'INPUT': entrada, 'OVERLAY': zone_uri(zone), 'OUTPUT': 'TEMPORARY_OUTPUT'},
+        return _run("native:clip", {'INPUT': entrada, 'OVERLAY': zone_uri(zone), 'OUTPUT': 'TEMPORARY_OUTPUT'},
                               feedback=feedback)['OUTPUT']
 
 
@@ -92,7 +126,7 @@ def _clip(uri, zone, feedback):
             raise
         try:
             reparada = QgsProcessingUtils.generateTempFilename('reparada.gpkg')
-            processing.run("native:fixgeometries", {'INPUT': uri, 'OUTPUT': reparada}, feedback=feedback)
+            _run("native:fixgeometries", {'INPUT': uri, 'OUTPUT': reparada}, feedback=feedback)
             return _clip_to(reparada, zone, feedback), True
         except Exception:  # noqa: BLE001
             raise error from None
@@ -115,19 +149,23 @@ def _vector(uri, crs, zone, output, feedback, notes=None):
     origen = QgsVectorLayer(uri, 'origen', 'ogr')
     nombre = origen.name() if origen.isValid() else os.path.basename(uri.split('|')[0])
     if origen.isValid() and origen.isSpatial() and not origen.crs().isValid():
-        _note(notes, f"La capa {os.path.basename(uri.split('|')[0])} no tiene SRC (¿falta el .prj?): "
-                     "se ha copiado sin reproyectar ni recortar")
+        fichero = os.path.basename(uri.split('|')[0])
+        motivo = "los DXF no lo guardan" if fichero.lower().endswith('.dxf') else "¿falta el .prj?"
+        _note(notes, f"La capa {fichero} no tiene SRC ({motivo}): se ha copiado sin "
+                     "reproyectar ni recortar. Si la necesitas recortada o reproyectada, asígnale el SRC en QGIS "
+                     "(Propiedades → Fuente) y vuelve a crear el proyecto")
         #Copia tal cual (este algoritmo, a diferencia de savefeatures, también escribe en una tabla del GeoPackage común)
-        processing.run("native:extractbyexpression", {'INPUT': uri, 'EXPRESSION': 'TRUE', 'OUTPUT': output}, feedback=feedback)
+        _run("native:extractbyexpression", {'INPUT': uri, 'EXPRESSION': 'TRUE', 'OUTPUT': output}, feedback=feedback)
         return True
     entrada = uri
     if zone and origen.isSpatial():  #Las tablas sin geometría se copian enteras
         entrada, reparada = _clip(uri, zone, feedback)
         if reparada:
-            _note(notes, f"La capa {nombre} tenía geometrías no válidas: se han reparado al recortarla")
+            _note(notes, f"La capa {nombre} tenía geometrías no válidas: se han reparado al recortarla "
+                         "(no hace falta hacer nada; los datos de origen no se tocan)")
         if _count(entrada) == 0:
             return False
-    processing.run("native:reprojectlayer", {'INPUT': entrada, 'TARGET_CRS': _crs_for(uri, crs), 'OUTPUT': output},
+    _run("native:reprojectlayer", {'INPUT': entrada, 'TARGET_CRS': _crs_for(uri, crs), 'OUTPUT': output},
                    feedback=feedback)
     return True
 
@@ -145,6 +183,7 @@ def export_layer(path_source, path_target, crs, feedback=None, layers=None, zone
     Lanza EmptyLayer si no queda nada dentro de la zona y ExportError si algo falla.
     """
     _check_not_source(path_source, path_target)
+    _check_source(path_source)
     try:
         os.makedirs(os.path.dirname(path_target), exist_ok=True)  #Crea las carpetas y subcarpetas donde irá el archivo
         # Ráster: por la extensión de origen o, si es poco común (.gtiff, .sdat...), porque su destino solo puede ser ráster
@@ -163,7 +202,7 @@ def export_layer(path_source, path_target, crs, feedback=None, layers=None, zone
     except (EmptyLayer, ExportError):
         raise
     except Exception as e:
-        raise ExportError(f"No se pudo exportar {os.path.basename(path_source)}: {e}") from e
+        raise ExportError(f"No se pudo exportar {os.path.basename(path_source)}: {explicar(e, REVISAR_CAPA)}") from e
     return path_target
 
 
@@ -173,7 +212,7 @@ def _remove_previous(path_target):
         try:
             os.remove(path_target)
         except OSError as e:
-            raise ExportError(f"No se puede sobrescribir {path_target}: ¿está abierto en QGIS? ({e.strerror})") from e
+            raise ExportError(f"No se puede sobrescribir {path_target}: {explicar(e)}") from e
 
 
 def export_to_shared_geopackage(path_source, gpkg, tables, crs, feedback=None, zone=None, notes=None):
@@ -184,6 +223,7 @@ def export_to_shared_geopackage(path_source, gpkg, tables, crs, feedback=None, z
     Devuelve la lista de capas de origen que han quedado vacías al recortarlas por la zona (no se escriben).
     """
     _check_not_source(path_source, gpkg)
+    _check_source(path_source)
     vacias = []
     try:
         os.makedirs(os.path.dirname(gpkg), exist_ok=True)
@@ -196,7 +236,7 @@ def export_to_shared_geopackage(path_source, gpkg, tables, crs, feedback=None, z
     except ExportError:
         raise
     except Exception as e:
-        raise ExportError(f"No se pudo exportar {os.path.basename(path_source)}: {e}") from e
+        raise ExportError(f"No se pudo exportar {os.path.basename(path_source)}: {explicar(e, REVISAR_CAPA)}") from e
     return vacias
 
 
@@ -220,7 +260,7 @@ def _export_to_geopackage(path_source, path_target, crs, feedback, layers, zone=
     if not capas:
         raise EmptyLayer(os.path.basename(path_source))
     _remove_previous(path_target)
-    processing.run("native:package", {'LAYERS': capas, 'OUTPUT': path_target,
+    _run("native:package", {'LAYERS': capas, 'OUTPUT': path_target,
                                       'OVERWRITE': True, 'SAVE_STYLES': False}, feedback=feedback)
 
 
@@ -256,7 +296,8 @@ def _export_raster(path_source, path_target, crs, feedback, zone=None, notes=Non
     """
     raster = QgsRasterLayer(path_source, 'origen')
     if raster.isValid() and not raster.crs().isValid():  #Sin SRC no se puede recortar ni reproyectar con seguridad
-        _note(notes, f"La capa {os.path.basename(path_source)} no tiene SRC: se ha copiado sin reproyectar ni recortar")
+        _note(notes, f"La capa {os.path.basename(path_source)} no tiene SRC: se ha copiado sin reproyectar ni recortar. Si la "
+                     "necesitas recortada o reproyectada, asígnale el SRC en QGIS y vuelve a crear el proyecto")
         crs, zone = None, None
     del raster  #Se suelta el fichero antes de procesarlo
     if zone and _raster_outside(path_source, zone):
@@ -271,7 +312,7 @@ def _export_raster(path_source, path_target, crs, feedback, zone=None, notes=Non
     _warp(path_source, temporal, crs, feedback, zone)
     _check_written(temporal, path_source)
     try:
-        processing.run("gdal:translate", {'INPUT': temporal, 'OUTPUT': path_target}, feedback=feedback)
+        _run("gdal:translate", {'INPUT': temporal, 'OUTPUT': path_target}, feedback=feedback)
     except Exception:  # noqa: BLE001 (se comprueba abajo si se ha escrito)
         pass
     if os.path.isfile(path_target):
@@ -285,7 +326,8 @@ def _export_raster(path_source, path_target, crs, feedback, zone=None, notes=Non
 def _check_written(path, path_source):
     """Los algoritmos de GDAL no siempre avisan si fallan: se comprueba que el fichero existe de verdad."""
     if not os.path.isfile(path) or os.path.getsize(path) == 0:
-        raise ExportError(f"GDAL no pudo escribir {os.path.basename(path_source)} (¿falta espacio, permisos o el fichero está en uso?)")
+        raise ExportError(f"No se pudo escribir la copia de {os.path.basename(path_source)}: comprueba que queda espacio en "
+                          "el disco y que el fichero no está abierto en otro programa")
 
 
 def _warp(path_source, path_target, crs, feedback, zone=None):
@@ -298,14 +340,15 @@ def _warp(path_source, path_target, crs, feedback, zone=None):
     extra = GEOTIFF_OPTIONS if extension(path_target) in ('.tif', '.tiff') else ''
     if zone:
         recorte = QgsProcessingUtils.generateTempFilename('recorte.tif')
-        processing.run("gdal:cliprasterbymasklayer", {'INPUT': path_source, 'MASK': zone_uri(zone),
+        _run("gdal:cliprasterbymasklayer", {'INPUT': path_source, 'MASK': zone_uri(zone),
                                                       'NODATA': _nodata(path_source), 'CROP_TO_CUTLINE': True,
                                                       'KEEP_RESOLUTION': True, 'OUTPUT': recorte}, feedback=feedback)
         if not os.path.isfile(recorte):
-            raise ExportError(f"No se pudo recortar {os.path.basename(path_source)} por la zona de trabajo")
+            raise ExportError(f"No se pudo recortar {os.path.basename(path_source)} por la zona de trabajo: comprueba que "
+                              "se abre bien en QGIS y que la zona lo toca")
         path_source = recorte
     if crs is None:
-        processing.run("gdal:translate", {'INPUT': path_source, 'EXTRA': extra, 'OUTPUT': path_target}, feedback=feedback)
+        _run("gdal:translate", {'INPUT': path_source, 'EXTRA': extra, 'OUTPUT': path_target}, feedback=feedback)
         return
-    processing.run("gdal:warpreproject", {'INPUT': path_source, 'TARGET_CRS': crs, 'RESAMPLING': 0,
+    _run("gdal:warpreproject", {'INPUT': path_source, 'TARGET_CRS': crs, 'RESAMPLING': 0,
                                           'EXTRA': extra, 'OUTPUT': path_target}, feedback=feedback)

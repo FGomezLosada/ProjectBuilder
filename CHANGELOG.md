@@ -1,5 +1,27 @@
 # Changelog / Historial de versiones
 
+## 1.0.1 (2026-10-20) · plan de pruebas por herramienta
+- **Plan de pruebas** (`docs/PLAN_PRUEBAS.md`): cada herramienta del panel tiene su batería de casos (124 casos nuevos en 12
+  baterías: uso normal, límite, absurdos y mensajes), que pasa en QGIS 3.40 y 4.2. En todos los casos se vigila que no salga
+  ningún error de Python ni ninguna ventana, y que cada aviso diga qué pasa y qué hacer.
+- **Ningún error imprevisto abre la ventana de error de Python**: sale un aviso en el panel y el detalle queda en el Registro
+  de mensajes (pestaña ProjectBuilder) para poder enviarlo.
+- **Avisos que dicen qué hacer**; los errores de Windows, GDAL y PostgreSQL se explican en palabras del usuario.
+- **Se comprueba antes de empezar**: capas movidas o borradas después de añadirlas, capas en edición con cambios sin guardar
+  (antes se copiaban sin esos cambios), rutas demasiado largas para Windows, unidades desconectadas, carpetas sin permiso,
+  SRC sin elegir y carpetas pegadas entre comillas («Copiar como ruta de acceso», ahora se aceptan).
+- **Zona de trabajo**: si se quita de QGIS la capa de la zona, el desplegable ya no salta solo a otra capa (se podía recortar
+  por la zona equivocada); se queda vacío y se avisa.
+- **«Conservar el formato»**: los shapefiles ya no pierden las tildes (todo se escribe en UTF-8), los GeoJSON con extensión
+  `.json` se guardan como `.geojson` (antes salía un fichero que QGIS no abría) y los MapInfo `.mif` se convierten a GeoPackage.
+- **Un solo GeoPackage**: las capas del proyecto abierto conservan su nombre (p. ej. «Plano 1:5000»).
+- Las tablas internas de SpatiaLite (KNN2, data_licenses) ya no aparecen como capas. Los logos e imágenes de las
+  composiciones se copian al proyecto. «Ver en el mapa» de una capa vacía avisa en lugar de llevar el mapa a 0,0.
+- Ficheros dañados (favoritos, estado de los servicios, configuraciones editadas a mano, plantillas .qpt) ya no dan errores:
+  se ignora lo que no sirve y se avisa. Una carpeta enorme (C:\, Documentos) ya no deja QGIS parado: se corta y se explica.
+- Pruebas: arrancan QGIS con una organización propia (QGIS 4.2 se quedaba parado si el registro tenía muchas claves de otras
+  baterías) y dejan `tests/data` como estaba.
+
 ## 1.0.0 (2026-10-05) · primera versión estable
 - **Revisión de robustez antes de publicar** (19 casos límite nuevos en `tests/robustez_test.py` y `robustez_fondo_test.py`):
   - Nunca se sobrescriben los datos de origen: se rechaza una carpeta de destino que contiene carpetas de capas, y la exportación se niega a escribir sobre su propio fichero de origen.
