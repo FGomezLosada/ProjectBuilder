@@ -97,6 +97,8 @@ El nombre y la carpeta del proyecto no se guardan, porque cambian cada vez.
   - **Vectoriales:** Shapefile, GeoPackage, SpatiaLite, GeoJSON, KML, GML, FlatGeobuf, MapInfo (TAB/MIF), DXF y GPX.
   - **Ráster:** GeoTIFF, ECW, JPEG2000, ASCII Grid, IMG, VRT, PNG/JPG georreferenciados y MrSID.
   - Los GeoPackage y demás ficheros con varias capas se despliegan para elegir capas sueltas.
+  - Si añades una carpeta enorme (por ejemplo `C:\` o *Documentos*), el plugin deja de recorrerla a los 20 segundos o a
+    los 20.000 ficheros, muestra lo que ha encontrado hasta ahí y avisa. Añade mejor la carpeta concreta donde están las capas.
 - **Bases de datos:** pulsa **Añadir base de datos** y elige una de tus conexiones de QGIS:
 
   ![Menú de bases de datos](manual/menu_bases_datos.png)
@@ -142,7 +144,9 @@ El mismo menú permite **abrir la carpeta** de la capa en el Explorador y **quit
 |---|---|
 | **Un solo GeoPackage + GeoTIFF** (recomendado) | Todas las capas vectoriales como tablas de `<nombre>.gpkg`, con sus estilos dentro. Los ráster en GeoTIFF comprimido. Es lo más cómodo para mover o enviar el proyecto. |
 | **Un GeoPackage por capa + GeoTIFF** | Cada capa vectorial en su propio `.gpkg`, con la misma estructura de carpetas que el origen. |
-| **Conservar el formato original** | Cada capa en su formato. Lo que GDAL no puede escribir bien (ECW, MrSID, VRT, DXF, GPX, MIF…) se convierte igualmente, y los ficheros con varias capas salen en GeoPackage. |
+| **Conservar el formato original** | Cada capa en su formato. Lo que GDAL no puede escribir bien (ECW, MrSID, VRT, DXF, GPX, MIF…) se convierte igualmente, y los ficheros con varias capas salen en GeoPackage. Los GeoJSON con extensión `.json` se guardan como `.geojson`. |
+
+En todos los formatos los textos se guardan en UTF-8, así que las tildes y eñes se conservan aunque las capas de origen estén en otra codificación (latin-1 o Windows-1252, típicas de shapefiles antiguos).
 
 En todos los casos se conserva la simbología de las capas: sus estilos `.qml`, los guardados dentro de los GeoPackage o de la base de datos, y los iconos SVG que usan (ver el [apartado 10](#10-estilos-simbología-e-iconos-qml-y-svg)). **Los datos de origen nunca se modifican.**
 
@@ -175,7 +179,7 @@ Con zona de trabajo, las capas WFS solo descargan esa zona.
 ![Sección Zona de trabajo](manual/seccion_zona.png)
 
 Activa la casilla para **recortar todas las capas** (vectoriales y ráster) a una zona. Tienes dos formas de definirla:
-- **Capa:** una capa de polígonos abierta en QGIS. Con *Solo los elementos seleccionados*, se usan solo los polígonos seleccionados (por ejemplo, un término municipal).
+- **Capa:** una capa de polígonos abierta en QGIS. Con *Solo los elementos seleccionados*, se usan solo los polígonos seleccionados (por ejemplo, un término municipal). Si quitas esa capa de QGIS, el desplegable se queda vacío y el panel avisa: nunca se recorta por otra capa sin que la elijas tú.
 - **Rectángulo:** con el botón de la derecha eliges la extensión actual del mapa, la de una capa, o dibujas el rectángulo en el mapa.
 
 **Opciones:**
@@ -195,7 +199,7 @@ Activa la casilla para **recortar todas las capas** (vectoriales y ráster) a un
 ![Sección Proyecto](manual/seccion_proyecto.png)
 
 - **Nombre:** el del fichero `.qgz` y del GeoPackage. También es el título del proyecto.
-- **Carpeta:** dónde se crea. Si no existe, se crea.
+- **Carpeta:** dónde se crea. Si no existe, se crea. Puedes elegirla con **…** o pegar la ruta, también tal como la copia el Explorador con *Copiar como ruta de acceso* (entre comillas): el plugin las quita.
   - **Recomendación:** usa una carpeta **vacía y propia para cada proyecto** (por ejemplo `C:\Proyectos\Urbanismo`), no directamente *Descargas* o *Escritorio*.
   - No puede ser una de las carpetas de origen ni estar dentro de ellas, para no sobrescribir los datos originales.
 - **SRC:** el sistema de referencia del proyecto. Con *Reproyectar todas las capas a este SRC*, todas las capas se transforman a él. Si lo desmarcas, cada capa conserva el suyo y QGIS las reproyecta al vuelo.
@@ -204,7 +208,7 @@ Activa la casilla para **recortar todas las capas** (vectoriales y ráster) a un
   - **mis plantillas `.qpt`**: pulsa *Añadir plantilla .qpt…* o arrastra el fichero al panel;
   - las **plantillas del perfil de QGIS**.
 
-  En el cajetín de la composición puedes escribir `[% @project_title %]`: se rellena con el nombre del proyecto.
+  En el cajetín de la composición puedes escribir `[% @project_title %]`: se rellena con el nombre del proyecto. Los logos e imágenes de las composiciones se copian a la carpeta `iconos\` del proyecto, como los iconos de los estilos (ver el [apartado 10.3](#103-iconos-svg-e-imágenes-la-carpeta-iconos)).
 
 ---
 
@@ -227,8 +231,17 @@ El botón **Informe de capas…** muestra al instante lo que llevará el proyect
 
 Debajo de las secciones, el **resumen en vivo** dice lo que se va a generar, por ejemplo: *7 capas · 2 servicios web · un solo GeoPackage · reproyectadas a EPSG:25830 · recortadas a la zona (+250 m) → C:\Proyectos\Urbanismo\Plan_urbanismo.qgz*.
 
-Pulsa **Crear proyecto**:
+Pulsa **Crear proyecto**. Antes de copiar nada, el plugin comprueba que todo está en orden, para que un problema no aparezca a mitad de la copia. Si algo falla, lo dice en la barra de avisos con qué hacer, y no se crea nada:
+- que haya nombre, carpeta y SRC, y que el nombre sea válido en Windows;
+- que la carpeta exista o se pueda crear, que se pueda escribir en ella y que la ruta no sea demasiado larga para Windows;
+- que las capas marcadas sigan en su sitio (no se hayan movido ni borrado desde que las añadiste);
+- que ninguna capa marcada esté en edición con **cambios sin guardar**: esos cambios no entrarían en el proyecto;
+- que la carpeta del proyecto no se mezcle con las de origen.
+
+Después:
 - La copia se hace en **segundo plano**, con el progreso abajo a la derecha de QGIS. Puedes seguir trabajando o cancelarla desde ahí.
+- Mientras se crea, el panel queda bloqueado: lo que había al pulsar *Crear proyecto* es lo que se crea.
+- Si la cancelas, no se guarda el proyecto; vuelve a pulsar *Crear proyecto* cuando quieras.
 - Al terminar, el panel muestra el resultado: el número de capas, lo que ocupa el proyecto y cuánto ha tardado.
 
 ![Resultado](manual/resultado.png)
@@ -276,6 +289,8 @@ Por eso, al crear el proyecto, ProjectBuilder:
 2. **Los copia** a la carpeta `iconos\` del proyecto.
 3. **Cambia la ruta** de cada símbolo para que apunte a la copia, con ruta relativa. También lo hace en el estilo guardado dentro del GeoPackage.
 
+Lo mismo se hace con los **logos e imágenes de las composiciones** de impresión.
+
 Así el proyecto es **autónomo**: puedes mover la carpeta, enviarla o abrirla en otro ordenador, y los iconos se siguen viendo.
 
 **Detalles:**
@@ -303,7 +318,7 @@ Urbanismo\
 ├── raster\                 ← los ráster en GeoTIFF, con la misma estructura de carpetas que el origen
 │   ├── mdt_4326.tif
 │   └── mdt_4326.qml        ← su estilo, si la capa de origen tenía .qml
-└── iconos\                 ← los iconos SVG o imágenes que usan los estilos (si los hay)
+└── iconos\                 ← los iconos SVG e imágenes de los estilos y los logos de las composiciones (si los hay)
     ├── farola.svg
     └── arbol.svg
 ```
@@ -347,6 +362,24 @@ No respondió en la última comprobación. Se vuelve a probar automáticamente; 
 
 **Al cargar una configuración avisa de que faltan cosas.**
 Se ha movido o borrado alguna carpeta, capa o tabla desde que se guardó, o la configuración viene de otro ordenador con otras rutas. Se carga todo lo demás. Corrige el panel y guárdala de nuevo con 💾.
+
+**«Hay capas en edición con cambios sin guardar…».**
+Tienes alguna de las capas marcadas en modo edición en QGIS, con cambios que aún no has guardado. El plugin copia lo que está guardado en el disco, así que esos cambios no entrarían en el proyecto. Guárdalos (botón *Guardar cambios de la capa* de la barra de edición) o descártalos, y vuelve a pulsar *Crear proyecto*.
+
+**«Algunas capas marcadas ya no están en su sitio».**
+Desde que añadiste la carpeta, alguna capa se ha movido, renombrado o borrado. El aviso dice cuáles. Desmárcalas, o quita la carpeta y vuelve a añadirla.
+
+**«La ruta del proyecto es demasiado larga».**
+Windows no admite rutas de más de 260 caracteres, y las capas van en subcarpetas del proyecto. Usa una carpeta más corta (por ejemplo `C:\Proyectos\Nombre`) o un nombre de proyecto más corto.
+
+**«No se puede escribir en la carpeta…».**
+No tienes permiso para escribir ahí (pasa con algunas carpetas de red o de sistema), o la carpeta está en una unidad que no está conectada. Elige otra carpeta.
+
+**Un aviso empieza por «No se ha podido…» y pide enviar el detalle al autor.**
+Ha pasado algo que el plugin no esperaba. Lo que tenías en el panel se conserva y puedes seguir trabajando. Para que se pueda corregir, abre *Ver → Paneles → Registro de mensajes*, pestaña **ProjectBuilder**, copia el texto y envíalo en [Issues](https://github.com/FGomezLosada/ProjectBuilder/issues) junto con lo que estabas haciendo.
+
+**Al cargar una configuración, dice que «tenía datos que no se entienden».**
+La configuración se ha editado a mano o viene de una versión más nueva del plugin. Se carga todo lo que se entiende y se ignora lo demás. Revisa el panel y vuelve a guardarla con 💾.
 
 **¿Modifica mis datos originales?**
 No. ProjectBuilder solo lee las capas de origen y escribe en la carpeta del proyecto.
